@@ -28,13 +28,20 @@ try {
 }
 
 // Validate required fields
-if (!config.openrouterKey) {
-  console.error('Missing openrouterKey in config.json. Run "node setup.js" to fix.');
+const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
+const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
+const hasMistralKey = process.env.MISTRAL_API_KEY;
+
+const configuredProvider = (config.provider || "gemini").toLowerCase();
+const providerKeys = { gemini: hasGeminiKey, openrouter: hasOpenRouterKey, mistral: hasMistralKey };
+
+if (!providerKeys[configuredProvider]) {
+  console.error(`Missing API key for provider "${configuredProvider}" in .env`);
   process.exit(1);
 }
 
 if (!config.model) {
-  config.model = 'google/gemini-2.0-flash-exp:free';
+  config.model = 'gemini-3.8-flash';
 }
 
 console.log(`\n  Clawd Agent v1.0.0`);

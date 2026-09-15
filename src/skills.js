@@ -73,4 +73,53 @@ function listSkills() {
     .join('\n');
 }
 
-module.exports = { loadSkills, runSkill, listSkills };
+/**
+ * Get structured skill information for the AI agent
+ * @returns {Array<Object>}
+ */
+function getSkillManifest() {
+  return skills.map(skill => ({
+    name: skill.name,
+    description: skill.description || 'No description',
+  }));
+}
+
+/**
+ * Run a specific skill by name
+ * Used by the AI agent after selecting a tool.
+ *
+ * @param {string} name - Skill name
+ * @param {string} input - Input passed to the skill
+ * @param {Object} ctx - Context: { userId, config }
+ * @returns {string}
+ */
+async function runSkillByName(name, input, ctx) {
+  const skill = skills.find(
+    skill => skill.name.toLowerCase() === name.toLowerCase()
+  );
+
+  if (!skill) {
+    throw new Error(`Skill "${name}" tidak ditemukan.`);
+  }
+
+  try {
+    return await skill.run(input, ctx);
+  } catch (err) {
+    console.error(
+      `[skills] Error running ${skill.name}:`,
+      err.message
+    );
+
+    throw new Error(
+      `Skill "${skill.name}" gagal: ${err.message}`
+    );
+  }
+}
+
+module.exports = {
+  loadSkills,
+  runSkill,
+  listSkills,
+  getSkillManifest,
+  runSkillByName,
+};
