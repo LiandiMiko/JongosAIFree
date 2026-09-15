@@ -1,5 +1,6 @@
 require("dotenv").config();
 const axios = require('axios');
+const { markSuccess, markRateLimited, markError } = require('./llm-status');
 
 const PROVIDERS = {
   gemini: {
@@ -188,6 +189,10 @@ async function callGemini(messages, model) {
         `[llm] Gemini key #${keyNumber} berhasil`
       );
 
+      markSuccess("gemini", model, {
+        lastError: null,
+      });
+
       return text;
 
     } catch (error) {
@@ -196,6 +201,34 @@ async function callGemini(messages, model) {
         const data = error.response.data;
 
         if (isQuotaError(status, data)) {
+          const violation =
+            data?.error?.details
+              ?.find((item) => item?.["@type"]?.includes("QuotaFailure"))
+              ?.violations?.[0];
+
+          const retryInfo =
+            data?.error?.details
+              ?.find((item) => item?.["@type"]?.includes("RetryInfo"));
+
+          const limit = violation?.quotaValue != null
+            ? Number(violation.quotaValue)
+            : null;
+
+          const retryAfter = retryInfo?.retryDelay
+            ? Number.parseFloat(retryInfo.retryDelay)
+            : null;
+
+          const message =
+            data?.error?.message || "Gemini rate limit/quota";
+
+          markRateLimited("gemini", model, {
+            limit,
+            remaining: 0,
+            used: limit,
+            retryAfter,
+            lastError: message,
+          });
+
           lastQuotaError = new Error(
             `Gemini key #${keyNumber} terkena limit/quota`
           );
@@ -280,6 +313,18 @@ async function callOpenRouter(messages, model) {
       );
     }
 
+    const headers = response.headers || {};
+    const limit = headers["x-ratelimit-limit"] ? Number(headers["x-ratelimit-limit"]) : null;
+    const remaining = headers["x-ratelimit-remaining"] ? Number(headers["x-ratelimit-remaining"]) : null;
+    const reset = headers["x-ratelimit-reset"] ? Number(headers["x-ratelimit-reset"]) : null;
+
+    markSuccess("openrouter", model, {
+      limit,
+      remaining,
+      used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
+      resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+    });
+
     return text;
 
   } catch (error) {
@@ -294,6 +339,24 @@ async function callOpenRouter(messages, model) {
       }
 
       if (isQuotaError(status, data)) {
+        const responseHeaders = error.response.headers || {};
+        const quotaHeaders = data?.error?.metadata?.headers || {};
+        const limitRaw = responseHeaders["x-ratelimit-limit"] || quotaHeaders["X-RateLimit-Limit"];
+        const remainingRaw = responseHeaders["x-ratelimit-remaining"] || quotaHeaders["X-RateLimit-Remaining"];
+        const resetRaw = responseHeaders["x-ratelimit-reset"] || quotaHeaders["X-RateLimit-Reset"];
+        const limit = limitRaw != null ? Number(limitRaw) : null;
+        const remaining = remainingRaw != null ? Number(remainingRaw) : null;
+        const reset = resetRaw != null ? Number(resetRaw) : null;
+        const message = data?.error?.message || "OpenRouter rate limit/quota";
+
+        markRateLimited("openrouter", model, {
+          limit,
+          remaining,
+          used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
+          resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+          lastError: message,
+        });
+
         const err = new Error(
           `Model ${model} OpenRouter sedang limit/quota habis`
         );
@@ -357,6 +420,18 @@ async function callMistral(messages, model) {
       );
     }
 
+    const headers = response.headers || {};
+    const limit = headers["x-ratelimit-limit"] ? Number(headers["x-ratelimit-limit"]) : null;
+    const remaining = headers["x-ratelimit-remaining"] ? Number(headers["x-ratelimit-remaining"]) : null;
+    const reset = headers["x-ratelimit-reset"] ? Number(headers["x-ratelimit-reset"]) : null;
+
+    markSuccess("mistral", model, {
+      limit,
+      remaining,
+      used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
+      resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+    });
+
     return text;
 
   } catch (error) {
@@ -371,6 +446,19 @@ async function callMistral(messages, model) {
       }
 
       if (isQuotaError(status, data)) {
+        const headers = error.response.headers || {};
+        const limit = headers["x-ratelimit-limit"] ? Number(headers["x-ratelimit-limit"]) : null;
+        const remaining = headers["x-ratelimit-remaining"] ? Number(headers["x-ratelimit-remaining"]) : null;
+        const reset = headers["x-ratelimit-reset"] ? Number(headers["x-ratelimit-reset"]) : null;
+
+        markRateLimited("mistral", model, {
+          limit,
+          remaining,
+          used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
+          resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+          lastError: data?.error?.message || "Mistral rate limit/quota",
+        });
+
         const err = new Error(
           `Model ${model} Mistral sedang limit/quota habis`
         );
