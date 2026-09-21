@@ -31,9 +31,15 @@ try {
 const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
 const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const hasMistralKey = process.env.MISTRAL_API_KEY;
+const hasLlamaCpp = !!process.env.LLAMACPP_URL;
 
 const configuredProvider = (config.provider || "gemini").toLowerCase();
-const providerKeys = { gemini: hasGeminiKey, openrouter: hasOpenRouterKey, mistral: hasMistralKey };
+const providerKeys = {
+  gemini: hasGeminiKey,
+  openrouter: hasOpenRouterKey,
+  mistral: hasMistralKey,
+  llamacpp: hasLlamaCpp,
+};
 
 if (!providerKeys[configuredProvider]) {
   console.error(`Missing API key for provider "${configuredProvider}" in .env`);
