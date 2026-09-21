@@ -58,6 +58,14 @@ const TOOL_ARG_SCHEMAS = {
     },
   },
 
+  'obsidian-create': {
+    required: ['path', 'content'],
+    types: {
+      path: 'string',
+      content: 'string',
+    },
+  },
+
   shell: {
     required: ['command'],
     types: {
@@ -222,6 +230,12 @@ function buildSkillInput(tool, args = {}) {
 
     case 'device-info':
       return `device: ${args.action || ''}`;
+
+    case 'obsidian-create':
+      return `obsidian-create: ${JSON.stringify({
+        path: args.path || '',
+        content: args.content || '',
+      })}`;
 
     case 'addskill':
       return `addskill: ${args.name || ''} | ${args.code || ''}`;

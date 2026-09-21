@@ -24,6 +24,7 @@ const TOOL_POLICY = {
   'device-info': 'medium',
   readfile: 'medium',
 
+  'obsidian-create': 'high',
   writefile: 'high',
   shell: 'high',
   addskill: 'high',
