@@ -4,6 +4,27 @@ const { markSuccess, markRateLimited, markError, recordUsage } = require('./llm-
 const { scanMessages, formatDetections } = require('./secret-scanner');
 const { isRateLimited } = require('./llm-status');
 
+// === Model health cache (anti-503 berulang) ===
+const modelHealthCache = new Map(); // key: "provider/model" → { until: timestamp }
+const MODEL_COOLDOWN_MS = 60 * 1000;
+
+function isModelUnhealthy(provider, model) {
+  const key = `${provider}/${model}`;
+  const entry = modelHealthCache.get(key);
+  if (!entry) return false;
+  if (Date.now() > entry.until) {
+    modelHealthCache.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function markModelUnhealthy(provider, model) {
+  const key = `${provider}/${model}`;
+  modelHealthCache.set(key, { until: Date.now() + MODEL_COOLDOWN_MS });
+}
+// === end Model health cache ===
+
 const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
@@ -605,6 +626,11 @@ async function callLLM(messages, config, options = {}) {
         console.log(
           `[llm] Skipping ${provider}/${model} (rate-limited)`
         );
+      } else if (isModelUnhealthy(provider, model)) {
+        skipped.push({ provider, model });
+        console.log(
+          `[llm] Skipping ${provider}/${model} (unhealthy cooldown)`
+        );
       } else {
         available.push({ provider, model });
       }
@@ -664,6 +690,16 @@ async function callLLM(messages, config, options = {}) {
       if (isModelUnavailable(error)) {
         console.log(
           `[llm] ${provider}/${model} tidak tersedia → coba model lain...`
+        );
+        continue;
+      }
+
+      // 503 / 502 / timeout → tandai unhealthy sementara
+      const status = error.response?.status;
+      if (status === 503 || status === 502 || status === 504 || error.code === 'ECONNABORTED') {
+        markModelUnhealthy(provider, model);
+        console.log(
+          `[llm] ${provider}/${model} unhealthy (${status || 'timeout'}) → cooldown 60s`
         );
         continue;
       }
