@@ -26,6 +26,9 @@ const TOOL_POLICY = {
 
   'obsidian-read': 'low',
   'obsidian-search': 'low',
+  'obsidian-tags': 'low',
+  'obsidian-backlinks': 'low',
+  'obsidian-context': 'low',
   'obsidian-create': 'high',
   'obsidian-append': 'high',
   'obsidian-update': 'high',

@@ -72,6 +72,25 @@ const TOOL_ARG_SCHEMAS = {
     },
   },
 
+  'obsidian-tags': {
+    required: [],
+    types: {},
+  },
+
+  'obsidian-backlinks': {
+    required: ['note'],
+    types: {
+      note: 'string',
+    },
+  },
+
+  'obsidian-context': {
+    required: ['query'],
+    types: {
+      query: 'string',
+    },
+  },
+
   'obsidian-create': {
     required: ['path', 'content'],
     types: {
@@ -272,6 +291,15 @@ function buildSkillInput(tool, args = {}) {
 
     case 'obsidian-search':
       return `obsidian-search: ${args.query || ''}`;
+
+    case 'obsidian-tags':
+      return 'obsidian-tags';
+
+    case 'obsidian-backlinks':
+      return `obsidian-backlinks: ${args.note || ''}`;
+
+    case 'obsidian-context':
+      return `obsidian-context: ${args.query || ''}`;
 
     case 'obsidian-append':
       return `obsidian-append: ${JSON.stringify({
