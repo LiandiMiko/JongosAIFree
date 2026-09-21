@@ -2,6 +2,7 @@ require("dotenv").config();
 const axios = require('axios');
 const { markSuccess, markRateLimited, markError, recordUsage } = require('./llm-status');
 const { scanMessages, formatDetections } = require('./secret-scanner');
+const { isRateLimited } = require('./llm-status');
 
 const PROVIDERS = {
   gemini: {
@@ -537,14 +538,13 @@ async function callLLM(messages, config) {
     ),
   ];
 
-  let lastError = null;
+  // === Rate-limit aware routing ===
+  const available = [];
+  const skipped = [];
 
   for (const provider of providerOrder) {
     const models = getModels(provider);
-
-    if (!models.length) {
-      continue;
-    }
+    if (!models.length) continue;
 
     const model =
       provider === primaryProvider &&
@@ -552,6 +552,28 @@ async function callLLM(messages, config) {
         ? config.model
         : models[0];
 
+    if (isRateLimited(provider, model)) {
+      skipped.push({ provider, model });
+      console.log(
+        `[llm] Skipping ${provider}/${model} (rate-limited)`
+      );
+    } else {
+      available.push({ provider, model });
+    }
+  }
+
+  if (available.length === 0 && skipped.length > 0) {
+    console.log(
+      '[llm] Semua provider rate-limited — mencoba sebagai last resort...'
+    );
+  }
+
+  const attemptOrder = [...available, ...skipped];
+  // === end Rate-limit aware routing ===
+
+  let lastError = null;
+
+  for (const { provider, model } of attemptOrder) {
     console.log(
       `[llm] Trying provider: ${provider} | model: ${model}`
     );

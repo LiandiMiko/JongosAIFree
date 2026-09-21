@@ -61,6 +61,60 @@ function recordUsage(provider, model, usage = {}) {
   return { ...entry, usage: { ...entry.usage } };
 }
 
+const DEFAULT_RATE_LIMIT_MS = 60 * 1000;
+
+/**
+ * Cek apakah provider/model sedang rate-limited.
+ * Kalau retryAfter atau resetAt sudah lewat → auto-reset status.
+ */
+function isRateLimited(provider, model) {
+  const entry = ensureProvider(provider, model);
+
+  if (entry.status !== 'rate_limited') {
+    return false;
+  }
+
+  const nowMs = Date.now();
+  const lastCheckMs = entry.lastChecked
+    ? new Date(entry.lastChecked).getTime()
+    : nowMs;
+
+  // 1. retryAfter (dalam detik) — dari Gemini RetryInfo
+  if (entry.retryAfter != null && !Number.isNaN(Number(entry.retryAfter))) {
+    const retryAt = lastCheckMs + Number(entry.retryAfter) * 1000;
+    if (nowMs < retryAt) {
+      return true;
+    }
+    // expired → auto-reset
+    entry.status = 'unknown';
+    entry.retryAfter = null;
+    entry.lastChecked = new Date().toISOString();
+    return false;
+  }
+
+  // 2. resetAt (ISO string) — dari OpenRouter / Mistral headers
+  if (entry.resetAt) {
+    const resetMs = new Date(entry.resetAt).getTime();
+    if (!Number.isNaN(resetMs) && nowMs < resetMs) {
+      return true;
+    }
+    entry.status = 'unknown';
+    entry.resetAt = null;
+    entry.lastChecked = new Date().toISOString();
+    return false;
+  }
+
+  // 3. Nggak ada timing info → pakai default window
+  const defaultRetryAt = lastCheckMs + DEFAULT_RATE_LIMIT_MS;
+  if (nowMs < defaultRetryAt) {
+    return true;
+  }
+
+  entry.status = 'unknown';
+  entry.lastChecked = new Date().toISOString();
+  return false;
+}
+
 function markError(provider, model, error) {
   return updateProvider(provider, model, {
     status: "error",
@@ -88,5 +142,6 @@ module.exports = {
   getProviderStatus,
   getAllProviderStatus,
   recordUsage,
+  isRateLimited,
   clearProviderStatus,
 };
