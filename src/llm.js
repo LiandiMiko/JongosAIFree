@@ -358,15 +358,74 @@ async function callGemini(messages, model, options = {}) {
    OPENROUTER
 ========================= */
 
+function sanitizeForLlamaCpp(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return [{ role: 'user', content: 'Halo' }];
+  }
+
+  const out = [];
+
+  // 1. System messages — gabung jadi satu di awal
+  const systems = messages.filter(m => m.role === 'system' && m.content);
+  if (systems.length > 0) {
+    out.push({
+      role: 'system',
+      content: systems.map(s => String(s.content)).join('\n\n'),
+    });
+  }
+
+  // 2. Non-system — alternating user/assistant
+  const rest = messages.filter(m => m.role !== 'system' && m.content);
+
+  for (const msg of rest) {
+    const content = String(msg.content);
+    if (!content.trim()) continue;
+
+    const last = out[out.length - 1];
+
+    // Gabung kalau role sama
+    if (last && last.role === msg.role) {
+      last.content += '\n\n' + content;
+      continue;
+    }
+
+    // Skip assistant yang muncul tanpa user sebelumnya
+    const lastNonSystem = out.filter(m => m.role !== 'system').pop();
+    if (msg.role === 'assistant' && !lastNonSystem) continue;
+
+    out.push({ role: msg.role, content });
+  }
+
+  // 3. Buang assistant di akhir
+  while (out.length > 0 && out[out.length - 1].role === 'assistant') {
+    out.pop();
+  }
+
+  // 4. Pastikan ada minimal 1 user message
+  if (!out.some(m => m.role === 'user')) {
+    out.push({ role: 'user', content: 'Halo' });
+  }
+
+  return out;
+}
+
 async function callLlamaCpp(messages, model, options = {}) {
   const apiKey = getApiKey('llamacpp');
+
+  const cleanMessages = sanitizeForLlamaCpp(messages);
+  const originalCount = Array.isArray(messages) ? messages.length : 0;
+  if (cleanMessages.length !== originalCount) {
+    console.log(
+      `[llamacpp] Sanitized messages: ${originalCount} → ${cleanMessages.length}`
+    );
+  }
 
   try {
     const response = await axios.post(
       `${LLAMACPP_URL}/chat/completions`,
       {
         model,
-        messages,
+        messages: cleanMessages,
         max_tokens: 2048,
         temperature: 0.7,
         ...(options.json
@@ -405,6 +464,9 @@ async function callLlamaCpp(messages, model, options = {}) {
 
     return text;
   } catch (error) {
+    if (error.response) {
+      console.error('[llamacpp] 400 body:', JSON.stringify(error.response.data).slice(0, 500));
+    }
     if (error.code === 'ECONNREFUSED' || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
       throw new Error(`llama.cpp tidak bisa dijangkau: ${error.message}`);
     }
