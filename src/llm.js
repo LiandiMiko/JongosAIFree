@@ -694,12 +694,23 @@ async function callLLM(messages, config, options = {}) {
         continue;
       }
 
-      // 503 / 502 / timeout → tandai unhealthy sementara
+      // 503 / 502 / 504 / timeout → tandai unhealthy sementara
       const status = error.response?.status;
-      if (status === 503 || status === 502 || status === 504 || error.code === 'ECONNABORTED') {
+      const msg = String(error.message || '').toLowerCase();
+      const isTransient =
+        status === 503 || status === 502 || status === 504 ||
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT' ||
+        msg.includes('timeout') ||
+        msg.includes('econnaborted') ||
+        msg.includes('etimedout') ||
+        msg.includes('service is currently unavailable') ||
+        msg.includes('currently experiencing high demand');
+
+      if (isTransient) {
         markModelUnhealthy(provider, model);
         console.log(
-          `[llm] ${provider}/${model} unhealthy (${status || 'timeout'}) → cooldown 60s`
+          `[llm] ${provider}/${model} unhealthy (${status || error.code || 'transient'}) → cooldown 60s`
         );
         continue;
       }
