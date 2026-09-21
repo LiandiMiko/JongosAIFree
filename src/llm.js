@@ -224,12 +224,31 @@ async function callGemini(messages, model) {
             ? Number(violation.quotaValue)
             : null;
 
-          const retryAfter = retryInfo?.retryDelay
-            ? Number.parseFloat(retryInfo.retryDelay)
-            : null;
+          let retryAfter = null;
+          if (retryInfo?.retryDelay) {
+            const raw = String(retryInfo.retryDelay).trim();
+            const val = Number.parseFloat(raw);
+            if (!Number.isNaN(val)) {
+              if (raw.endsWith('ms')) retryAfter = val / 1000;
+              else retryAfter = val; // assume seconds
+            }
+          }
 
-          const message =
+          // Fallback: parse dari pesan "Please retry in 59.5s" / "107ms"
+          if (retryAfter === null) {
+            const fallback = String(data?.error?.message || '')
+              .match(/retry in ([\d.]+)(ms|s)\b/i);
+            if (fallback) {
+              const v = Number.parseFloat(fallback[1]);
+              retryAfter = fallback[2].toLowerCase() === 'ms' ? v / 1000 : v;
+            }
+          }
+
+          const rawMessage =
             data?.error?.message || "Gemini rate limit/quota";
+          const message = rawMessage
+            .replace(/\s+/g, ' ')
+            .slice(0, 200);
 
           markRateLimited("gemini", model, {
             limit,
