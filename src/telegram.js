@@ -48,7 +48,8 @@ function startTelegram(config) {
 
         for (const e of all) {
           const u = e.usage || {};
-          lines.push('*' + e.provider + ' / ' + e.model + '*');
+          const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
+          lines.push('*' + e.provider + ' / ' + e.model + keyLabel + '*');
           lines.push('• Status        : `' + e.status + '`');
           lines.push('• Requests      : ' + fmt(u.requests));
           lines.push('• Input tokens  : ' + fmt(u.inputTokens));

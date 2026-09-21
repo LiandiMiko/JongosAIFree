@@ -4,12 +4,19 @@ function now() {
   return new Date().toISOString();
 }
 
-function ensureProvider(provider, model) {
-  const key = `${provider}/${model}`;
+function makeKey(provider, model, keyId = null) {
+  return keyId != null
+    ? `${provider}#${keyId}/${model}`
+    : `${provider}/${model}`;
+}
+
+function ensureProvider(provider, model, keyId = null) {
+  const key = makeKey(provider, model, keyId);
   if (!providers.has(key)) {
     providers.set(key, {
       provider,
       model,
+      keyId,
       status: "unknown",
       limit: null,
       remaining: null,
@@ -24,30 +31,30 @@ function ensureProvider(provider, model) {
   return providers.get(key);
 }
 
-function updateProvider(provider, model, data = {}) {
-  const entry = ensureProvider(provider, model);
+function updateProvider(provider, model, data = {}, keyId = null) {
+  const entry = ensureProvider(provider, model, keyId);
   Object.assign(entry, data, { lastChecked: now() });
   return { ...entry };
 }
 
-function markSuccess(provider, model, data = {}) {
+function markSuccess(provider, model, data = {}, keyId = null) {
   return updateProvider(provider, model, {
     status: "available",
     lastError: null,
     retryAfter: null,
     ...data,
-  });
+  }, keyId);
 }
 
-function markRateLimited(provider, model, data = {}) {
+function markRateLimited(provider, model, data = {}, keyId = null) {
   return updateProvider(provider, model, {
     status: "rate_limited",
     ...data,
-  });
+  }, keyId);
 }
 
-function recordUsage(provider, model, usage = {}) {
-  const entry = ensureProvider(provider, model);
+function recordUsage(provider, model, usage = {}, keyId = null) {
+  const entry = ensureProvider(provider, model, keyId);
   const inputTokens = Number(usage.inputTokens || 0);
   const outputTokens = Number(usage.outputTokens || 0);
   const totalTokens = Number(usage.totalTokens || inputTokens + outputTokens);
@@ -61,73 +68,79 @@ function recordUsage(provider, model, usage = {}) {
   return { ...entry, usage: { ...entry.usage } };
 }
 
+function markError(provider, model, error, keyId = null) {
+  return updateProvider(provider, model, {
+    status: "error",
+    lastError: error instanceof Error ? error.message : String(error),
+  }, keyId);
+}
+
 const DEFAULT_RATE_LIMIT_MS = 60 * 1000;
 
 /**
- * Cek apakah provider/model sedang rate-limited.
- * Kalau retryAfter atau resetAt sudah lewat → auto-reset status.
+ * Return true kalau entry masih rate-limited (window belum lewat).
+ * Auto-reset kalau window sudah lewat.
  */
-function isRateLimited(provider, model) {
-  const entry = ensureProvider(provider, model);
-
-  if (entry.status !== 'rate_limited') {
-    return false;
-  }
+function checkEntryRateLimited(entry) {
+  if (entry.status !== 'rate_limited') return false;
 
   const nowMs = Date.now();
   const lastCheckMs = entry.lastChecked
     ? new Date(entry.lastChecked).getTime()
     : nowMs;
 
-  // 1. retryAfter (dalam detik) — dari Gemini RetryInfo
   if (entry.retryAfter != null && !Number.isNaN(Number(entry.retryAfter))) {
     const retryAt = lastCheckMs + Number(entry.retryAfter) * 1000;
-    if (nowMs < retryAt) {
-      return true;
-    }
-    // expired → auto-reset
+    if (nowMs < retryAt) return true;
     entry.status = 'unknown';
     entry.retryAfter = null;
-    entry.lastChecked = new Date().toISOString();
+    entry.lastChecked = now();
     return false;
   }
 
-  // 2. resetAt (ISO string) — dari OpenRouter / Mistral headers
   if (entry.resetAt) {
     const resetMs = new Date(entry.resetAt).getTime();
-    if (!Number.isNaN(resetMs) && nowMs < resetMs) {
-      return true;
-    }
+    if (!Number.isNaN(resetMs) && nowMs < resetMs) return true;
     entry.status = 'unknown';
     entry.resetAt = null;
-    entry.lastChecked = new Date().toISOString();
+    entry.lastChecked = now();
     return false;
   }
 
-  // 3. Nggak ada timing info → pakai default window
   const defaultRetryAt = lastCheckMs + DEFAULT_RATE_LIMIT_MS;
-  if (nowMs < defaultRetryAt) {
-    return true;
-  }
+  if (nowMs < defaultRetryAt) return true;
 
   entry.status = 'unknown';
-  entry.lastChecked = new Date().toISOString();
+  entry.lastChecked = now();
   return false;
 }
 
-function markError(provider, model, error) {
-  return updateProvider(provider, model, {
-    status: "error",
-    lastError: error instanceof Error ? error.message : String(error),
-  });
+/**
+ * Provider dianggap rate-limited HANYA kalau SEMUA key-nya rate-limited.
+ * Kalau ada minimal 1 key available → false.
+ */
+function isRateLimited(provider, model) {
+  const matching = [...providers.values()].filter(
+    (e) => e.provider === provider && e.model === model
+  );
+
+  if (matching.length === 0) return false;
+
+  const perKey = matching.filter((e) => e.keyId != null);
+  if (perKey.length > 0) {
+    return perKey.every((e) => checkEntryRateLimited(e));
+  }
+
+  const base = matching.find((e) => e.keyId == null);
+  return base ? checkEntryRateLimited(base) : false;
 }
 
-function getProviderStatus(provider, model) {
-  return providers.get(`${provider}/${model}`) || null;
+function getProviderStatus(provider, model, keyId = null) {
+  return providers.get(makeKey(provider, model, keyId)) || null;
 }
 
 function getAllProviderStatus() {
-  return Array.from(providers.values()).map(entry => ({ ...entry }));
+  return Array.from(providers.values()).map((entry) => ({ ...entry }));
 }
 
 function clearProviderStatus() {

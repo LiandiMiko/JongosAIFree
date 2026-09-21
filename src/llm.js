@@ -197,11 +197,11 @@ async function callGemini(messages, model) {
         inputTokens: usage.promptTokenCount,
         outputTokens: usage.candidatesTokenCount,
         totalTokens: usage.totalTokenCount,
-      });
+      }, keyNumber);
 
       markSuccess("gemini", model, {
         lastError: null,
-      });
+      }, keyNumber);
 
       return text;
 
@@ -237,7 +237,7 @@ async function callGemini(messages, model) {
             used: limit,
             retryAfter,
             lastError: message,
-          });
+          }, keyNumber);
 
           lastQuotaError = new Error(
             `Gemini key #${keyNumber} terkena limit/quota`
