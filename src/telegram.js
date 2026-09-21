@@ -116,7 +116,18 @@ function startTelegram(config) {
         const { callLLM } = require('./llm');
         const { getHistory } = require('./memory');
 
-        const history = await getHistory(userId);
+        const fullHistory = await getHistory(userId);
+
+        // Fast-chat: ambil 6 pesan terakhir + potong tiap pesan max 300 char
+        const MAX_TURNS = 6;
+        const MAX_CONTENT_CHARS = 300;
+        const history = fullHistory.slice(-MAX_TURNS).map((m) => ({
+          role: m.role,
+          content: String(m.content || '').slice(0, MAX_CONTENT_CHARS),
+        }));
+
+        console.log(`[telegram] Fast-chat history: ${fullHistory.length} → ${history.length} msgs`);
+
         const messages = [
           {
             role: 'system',
