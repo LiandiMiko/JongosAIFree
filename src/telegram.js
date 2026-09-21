@@ -43,14 +43,19 @@ function startTelegram(config) {
           return;
         }
 
+        const esc = (v) => String(v == null ? '' : v)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
         const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
-        const lines = ['📊 *LLM Usage Status*', ''];
+        const lines = ['📊 <b>LLM Usage Status</b>', ''];
 
         for (const e of all) {
           const u = e.usage || {};
           const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
-          lines.push('*' + e.provider + ' / ' + e.model + keyLabel + '*');
-          lines.push('• Status        : `' + e.status + '`');
+          lines.push('<b>' + esc(e.provider) + ' / ' + esc(e.model) + esc(keyLabel) + '</b>');
+          lines.push('• Status        : <code>' + esc(e.status) + '</code>');
           lines.push('• Requests      : ' + fmt(u.requests));
           lines.push('• Input tokens  : ' + fmt(u.inputTokens));
           lines.push('• Output tokens : ' + fmt(u.outputTokens));
@@ -60,13 +65,13 @@ function startTelegram(config) {
             lines.push('• Quota remain  : ' + fmt(e.remaining));
             lines.push('• Quota used    : ' + fmt(e.used));
           }
-          if (e.retryAfter) lines.push('• Retry after   : ' + e.retryAfter + 's');
-          if (e.resetAt)    lines.push('• Reset at      : ' + e.resetAt);
-          if (e.lastError)  lines.push('• Last error    : ' + e.lastError);
+          if (e.retryAfter) lines.push('• Retry after   : ' + esc(e.retryAfter) + 's');
+          if (e.resetAt)    lines.push('• Reset at      : ' + esc(e.resetAt));
+          if (e.lastError)  lines.push('• Last error    : ' + esc(e.lastError));
           lines.push('');
         }
 
-        await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+        await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
         return;
       }
 
