@@ -66,6 +66,22 @@ const TOOL_ARG_SCHEMAS = {
     },
   },
 
+  'obsidian-append': {
+    required: ['path', 'content'],
+    types: {
+      path: 'string',
+      content: 'string',
+    },
+  },
+
+  'obsidian-update': {
+    required: ['path', 'content'],
+    types: {
+      path: 'string',
+      content: 'string',
+    },
+  },
+
   shell: {
     required: ['command'],
     types: {
@@ -233,6 +249,18 @@ function buildSkillInput(tool, args = {}) {
 
     case 'obsidian-create':
       return `obsidian-create: ${JSON.stringify({
+        path: args.path || '',
+        content: args.content || '',
+      })}`;
+
+    case 'obsidian-append':
+      return `obsidian-append: ${JSON.stringify({
+        path: args.path || '',
+        content: args.content || '',
+      })}`;
+
+    case 'obsidian-update':
+      return `obsidian-update: ${JSON.stringify({
         path: args.path || '',
         content: args.content || '',
       })}`;

@@ -25,6 +25,8 @@ const TOOL_POLICY = {
   readfile: 'medium',
 
   'obsidian-create': 'high',
+  'obsidian-append': 'high',
+  'obsidian-update': 'high',
   writefile: 'high',
   shell: 'high',
   addskill: 'high',
