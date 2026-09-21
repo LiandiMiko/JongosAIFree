@@ -1,6 +1,7 @@
 require("dotenv").config();
 const axios = require('axios');
 const { markSuccess, markRateLimited, markError, recordUsage } = require('./llm-status');
+const { scanMessages, formatDetections } = require('./secret-scanner');
 
 const PROVIDERS = {
   gemini: {
@@ -510,6 +511,22 @@ async function callMistral(messages, model) {
 ========================= */
 
 async function callLLM(messages, config) {
+  // === Secret Scanner (Layer 1) ===
+  const scan = scanMessages(messages);
+  if (scan.detections.length > 0) {
+    console.log(
+      '[privacy] Secret detected & redacted:',
+      formatDetections(scan.detections)
+    );
+    for (const d of scan.detections) {
+      console.log(
+        `[privacy]   msg#${d.index} (${d.role}) → ${d.type}${d.key ? ' (' + d.key + ')' : ''} ${d.preview}`
+      );
+    }
+    messages = scan.messages;
+  }
+  // === end Secret Scanner ===
+
   const primaryProvider =
     (config.provider || 'gemini').toLowerCase();
 
