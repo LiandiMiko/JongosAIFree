@@ -13,6 +13,31 @@ const {
  * Start the Telegram bot gateway
  * @param {Object} config - App configuration
  */
+const AGENT_TRIGGERS = [
+  // Obsidian
+  /\bnote\b/i, /\bcatat\b/i, /\bcari\b/i, /\bbaca\b/i,
+  /\bobsidian\b/i, /\bvault\b/i, /\btag\b/i, /\bbacklink\b/i,
+  /\bknowledge\b/i, /\bprogres\b/i, /\bprogress\b/i,
+  // File
+  /\bread:/i, /\bbaca file\b/i, /\bwrite:/i,
+  // Shell
+  /\bjalankan\b/i, /\bshell\b/i, /\brun:/i, /\bcommand\b/i,
+  // Device
+  /\bbaterai\b/i, /\bbattery\b/i, /\bdevice\b/i, /\binfo hp\b/i,
+  // Skills
+  /\bskill\b/i, /\bclawd-scan\b/i, /\bping\b/i,
+  // Slash commands handled separately
+];
+
+function needsAgentLoop(text) {
+  const t = text.trim();
+  if (!t) return false;
+  // Slash command
+  if (t.startsWith('/')) return false;
+  // Trigger words
+  return AGENT_TRIGGERS.some(re => re.test(t));
+}
+
 function startTelegram(config) {
   if (!config.telegramToken) {
     console.log(
@@ -84,6 +109,29 @@ function startTelegram(config) {
 
     try {
       await ctx.replyWithChatAction('typing');
+
+      // === Smart routing: chat biasa → local, butuh tool → agent loop ===
+      if (!needsAgentLoop(text)) {
+        console.log('[telegram] Fast-chat mode (local LLM, no tools)');
+        const { callLLM } = require('./llm');
+        const { getHistory } = require('./memory');
+
+        const history = await getHistory(userId);
+        const messages = [
+          {
+            role: 'system',
+            content: 'Kamu adalah Paijo, asisten AI yang ramah. Jawab singkat, natural, dalam bahasa Indonesia.',
+          },
+          ...history,
+          { role: 'user', content: text },
+        ];
+
+        const reply = await callLLM(messages, config);
+
+        await ctx.reply(reply);
+        return;
+      }
+      // === end Smart routing ===
 
       const result = await runAgent(
         text,
