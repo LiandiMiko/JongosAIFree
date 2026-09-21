@@ -58,6 +58,20 @@ const TOOL_ARG_SCHEMAS = {
     },
   },
 
+  'obsidian-read': {
+    required: ['note'],
+    types: {
+      note: 'string',
+    },
+  },
+
+  'obsidian-search': {
+    required: ['query'],
+    types: {
+      query: 'string',
+    },
+  },
+
   'obsidian-create': {
     required: ['path', 'content'],
     types: {
@@ -252,6 +266,12 @@ function buildSkillInput(tool, args = {}) {
         path: args.path || '',
         content: args.content || '',
       })}`;
+
+    case 'obsidian-read':
+      return `obsidian-read: ${args.note || ''}`;
+
+    case 'obsidian-search':
+      return `obsidian-search: ${args.query || ''}`;
 
     case 'obsidian-append':
       return `obsidian-append: ${JSON.stringify({
