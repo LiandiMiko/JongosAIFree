@@ -17,19 +17,17 @@ const PROVIDERS = {
   openrouter: {
     name: 'OpenRouter',
     models: [
-      // Model stabil dulu (support JSON mode + tool calling)
-      'meta-llama/llama-3.3-70b-instruct:free',
-      'qwen/qwen3-coder:free',
-      'openai/gpt-oss-120b:free',
-      'deepseek/deepseek-r1-0528:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free',
+      // Verified free 2026-09-21, support JSON + tool calling
+      'qwen/qwen3.8-27b:free',
+      'z-ai/glm-5.2:free',
       'nvidia/nemotron-3-super-120b-a12b:free',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'google/gemma-3-27b-it:free',
       'google/gemma-4-31b-it:free',
-      'nvidia/nemotron-3-nano-30b-a3b:free',
-      // Auto-router sebagai last resort (kadang pilih model aneh)
-      'openrouter/free',
+      'google/gemma-4-26b-a4b-it:free',
+      'cohere/north-mini-code:free',
+      'poolside/laguna-s-2.1:free',
+      'poolside/laguna-xs-2.1:free',
+      'thinkingmachines/inkling:free',
     ],
   },
 
@@ -75,6 +73,22 @@ function getApiKey(provider) {
   return keys[provider];
 }
 
+
+function isModelUnavailable(error) {
+  const status = error?.response?.status;
+  if (status !== 404 && status !== 400) return false;
+  const msg = String(
+    error?.response?.data?.error?.message ||
+    error?.message ||
+    ''
+  ).toLowerCase();
+  return (
+    msg.includes('unavailable') ||
+    msg.includes('not found') ||
+    msg.includes('no endpoints') ||
+    msg.includes('model') && msg.includes('free')
+  );
+}
 
 function isQuotaError(status, data) {
   const msg = (
@@ -571,7 +585,7 @@ async function callLLM(messages, config, options = {}) {
     ),
   ];
 
-  // === Rate-limit aware routing ===
+  // === Rate-limit aware routing (multi-model per provider) ===
   const available = [];
   const skipped = [];
 
@@ -579,19 +593,21 @@ async function callLLM(messages, config, options = {}) {
     const models = getModels(provider);
     if (!models.length) continue;
 
-    const model =
-      provider === primaryProvider &&
-      models.includes(config.model)
-        ? config.model
-        : models[0];
+    // Prioritaskan config.model kalau ada di primary provider
+    let providerModels = models;
+    if (provider === primaryProvider && models.includes(config.model)) {
+      providerModels = [config.model, ...models.filter((m) => m !== config.model)];
+    }
 
-    if (isRateLimited(provider, model)) {
-      skipped.push({ provider, model });
-      console.log(
-        `[llm] Skipping ${provider}/${model} (rate-limited)`
-      );
-    } else {
-      available.push({ provider, model });
+    for (const model of providerModels) {
+      if (isRateLimited(provider, model)) {
+        skipped.push({ provider, model });
+        console.log(
+          `[llm] Skipping ${provider}/${model} (rate-limited)`
+        );
+      } else {
+        available.push({ provider, model });
+      }
     }
   }
 
@@ -641,6 +657,13 @@ async function callLLM(messages, config, options = {}) {
       if (isQuota) {
         console.log(
           `[llm] ${provider}/${model} limit → fallback ke provider berikutnya...`
+        );
+        continue;
+      }
+
+      if (isModelUnavailable(error)) {
+        console.log(
+          `[llm] ${provider}/${model} tidak tersedia → coba model lain...`
         );
         continue;
       }
