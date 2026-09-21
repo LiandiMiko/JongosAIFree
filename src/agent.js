@@ -1,6 +1,7 @@
 const { callLLM, PROVIDERS, getModels } = require('./llm');
 const { getHistory, addMessage, clearHistory } = require('./memory');
 const { runSkill, listSkills } = require('./skills');
+const { getAllProviderStatus } = require('./llm-status');
 
 function buildSystemPrompt(config) {
   const date = new Date().toLocaleDateString('id-ID', {
@@ -44,6 +45,7 @@ function introText(config) {
     '/models',
     '/reset',
     '/skills',
+    '/status',
     '/device',
   ].join('\n');
 }
@@ -62,11 +64,44 @@ async function processMessage(userId, text, config) {
       '/model    — Lihat/ganti model',
       '/models   — Daftar model provider aktif',
       '/skills   — Daftar skill',
+      '/status   — Usage & quota LLM',
       '/device   — Akses perangkat',
       '/reset    — Hapus memory/history',
       `Provider aktif: \`${config.provider || 'gemini'}\``,
       `Model aktif: \`${config.model}\``,
     ].join('\n');
+  }
+
+  if (trimmed === '/status') {
+    const all = getAllProviderStatus();
+
+    if (!all.length) {
+      return '📊 Belum ada data usage. Coba kirim pesan dulu.';
+    }
+
+    const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
+    const lines = ['📊 *LLM Usage Status*', ''];
+
+    for (const e of all) {
+      const u = e.usage || {};
+      lines.push('*' + e.provider + ' / ' + e.model + '*');
+      lines.push('• Status        : `' + e.status + '`');
+      lines.push('• Requests      : ' + fmt(u.requests));
+      lines.push('• Input tokens  : ' + fmt(u.inputTokens));
+      lines.push('• Output tokens : ' + fmt(u.outputTokens));
+      lines.push('• Total tokens  : ' + fmt(u.totalTokens));
+      if (e.limit !== null && e.limit !== undefined) {
+        lines.push('• Quota limit   : ' + fmt(e.limit));
+        lines.push('• Quota remain  : ' + fmt(e.remaining));
+        lines.push('• Quota used    : ' + fmt(e.used));
+      }
+      if (e.retryAfter) lines.push('• Retry after   : ' + e.retryAfter + 's');
+      if (e.resetAt)    lines.push('• Reset at      : ' + e.resetAt);
+      if (e.lastError)  lines.push('• Last error    : ' + e.lastError);
+      lines.push('');
+    }
+
+    return lines.join('\n');
   }
 
   if (trimmed === '/provider') {

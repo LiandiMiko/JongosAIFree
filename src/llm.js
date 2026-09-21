@@ -1,6 +1,6 @@
 require("dotenv").config();
 const axios = require('axios');
-const { markSuccess, markRateLimited, markError } = require('./llm-status');
+const { markSuccess, markRateLimited, markError, recordUsage } = require('./llm-status');
 
 const PROVIDERS = {
   gemini: {
@@ -189,6 +189,14 @@ async function callGemini(messages, model) {
         `[llm] Gemini key #${keyNumber} berhasil`
       );
 
+      const usage = response.data?.usageMetadata || {};
+
+      recordUsage("gemini", model, {
+        inputTokens: usage.promptTokenCount,
+        outputTokens: usage.candidatesTokenCount,
+        totalTokens: usage.totalTokenCount,
+      });
+
       markSuccess("gemini", model, {
         lastError: null,
       });
@@ -313,6 +321,14 @@ async function callOpenRouter(messages, model) {
       );
     }
 
+    const usage = response.data?.usage || {};
+
+    recordUsage("openrouter", model, {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+    });
+
     const headers = response.headers || {};
     const limit = headers["x-ratelimit-limit"] ? Number(headers["x-ratelimit-limit"]) : null;
     const remaining = headers["x-ratelimit-remaining"] ? Number(headers["x-ratelimit-remaining"]) : null;
@@ -424,6 +440,14 @@ async function callMistral(messages, model) {
     const limit = headers["x-ratelimit-limit"] ? Number(headers["x-ratelimit-limit"]) : null;
     const remaining = headers["x-ratelimit-remaining"] ? Number(headers["x-ratelimit-remaining"]) : null;
     const reset = headers["x-ratelimit-reset"] ? Number(headers["x-ratelimit-reset"]) : null;
+
+    const usage = response.data?.usage || {};
+
+    recordUsage("mistral", model, {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+    });
 
     markSuccess("mistral", model, {
       limit,

@@ -29,6 +29,52 @@ function startTelegram(config) {
   bot.on('message:text', async (ctx) => {
     const userId = `tg-${ctx.from.id}`;
     const text = ctx.message.text;
+    console.log('[telegram] MSG from', userId, '→', JSON.stringify(text));
+
+    // /status already wrapped
+    // === /status command intercept (before LLM) ===
+    try {
+      if (text.trim() === '/status') {
+        const { getAllProviderStatus } = require('./llm-status');
+        const all = getAllProviderStatus();
+
+        if (!all.length) {
+          await ctx.reply('📊 Belum ada data usage. Coba kirim pesan dulu.');
+          return;
+        }
+
+        const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
+        const lines = ['📊 *LLM Usage Status*', ''];
+
+        for (const e of all) {
+          const u = e.usage || {};
+          lines.push('*' + e.provider + ' / ' + e.model + '*');
+          lines.push('• Status        : `' + e.status + '`');
+          lines.push('• Requests      : ' + fmt(u.requests));
+          lines.push('• Input tokens  : ' + fmt(u.inputTokens));
+          lines.push('• Output tokens : ' + fmt(u.outputTokens));
+          lines.push('• Total tokens  : ' + fmt(u.totalTokens));
+          if (e.limit !== null && e.limit !== undefined) {
+            lines.push('• Quota limit   : ' + fmt(e.limit));
+            lines.push('• Quota remain  : ' + fmt(e.remaining));
+            lines.push('• Quota used    : ' + fmt(e.used));
+          }
+          if (e.retryAfter) lines.push('• Retry after   : ' + e.retryAfter + 's');
+          if (e.resetAt)    lines.push('• Reset at      : ' + e.resetAt);
+          if (e.lastError)  lines.push('• Last error    : ' + e.lastError);
+          lines.push('');
+        }
+
+        await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
+        return;
+      }
+
+    } catch (e) {
+      console.error('[telegram] /status error:', e.message);
+      await ctx.reply('❌ /status error: ' + e.message).catch(() => {});
+      return;
+    }
+    // === end /status ===
 
     try {
       await ctx.replyWithChatAction('typing');

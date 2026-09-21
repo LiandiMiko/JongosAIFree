@@ -17,6 +17,7 @@ function ensureProvider(provider, model) {
       resetAt: null,
       retryAfter: null,
       lastError: null,
+      usage: { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
       lastChecked: null,
     });
   }
@@ -45,6 +46,21 @@ function markRateLimited(provider, model, data = {}) {
   });
 }
 
+function recordUsage(provider, model, usage = {}) {
+  const entry = ensureProvider(provider, model);
+  const inputTokens = Number(usage.inputTokens || 0);
+  const outputTokens = Number(usage.outputTokens || 0);
+  const totalTokens = Number(usage.totalTokens || inputTokens + outputTokens);
+
+  entry.usage.requests += 1;
+  entry.usage.inputTokens += inputTokens;
+  entry.usage.outputTokens += outputTokens;
+  entry.usage.totalTokens += totalTokens;
+  entry.lastChecked = now();
+
+  return { ...entry, usage: { ...entry.usage } };
+}
+
 function markError(provider, model, error) {
   return updateProvider(provider, model, {
     status: "error",
@@ -71,5 +87,6 @@ module.exports = {
   markError,
   getProviderStatus,
   getAllProviderStatus,
+  recordUsage,
   clearProviderStatus,
 };
