@@ -236,6 +236,9 @@ module.exports = {
       return `Tidak ada konteks yang cocok dengan "${query}".`;
     }
 
+    lines.push('');
+    lines.push('💡 Konteks di atas sudah cukup untuk menjawab. Jangan panggil obsidian-read berulang kali — kalau butuh detail, baca 1 note paling relevan saja.');
+
     return lines.join('\n').trim();
   },
 };

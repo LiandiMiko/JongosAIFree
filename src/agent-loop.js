@@ -517,6 +517,10 @@ function parseAgentDecision(raw) {
   try {
     decision = JSON.parse(text);
   } catch (error) {
+    console.error(
+      '[agent] JSON parse failed. Raw (300 chars):',
+      String(raw).slice(0, 300).replace(/\n/g, '\\n')
+    );
     return {
       valid: false,
       reason: 'Response LLM bukan JSON yang valid.',
@@ -692,6 +696,11 @@ function buildAgentPrompt() {
     'Contoh: "Jalankan pwd, lalu setelah itu jalankan date" harus menjadi shell {"command":"pwd"} terlebih dahulu.',
     'Setelah hasil pwd diterima, barulah keluarkan shell {"command":"date"}.',
     'Jangan pernah menggabungkan beberapa command menjadi "pwd && date".',
+    '',
+    'ATURAN OBSIDIAN:',
+    'Jika kamu sudah memanggil obsidian-context atau obsidian-search, itu SUDAH cukup untuk menjawab.',
+    'Jangan panggil obsidian-read berkali-kali untuk note yang berbeda. Maksimal 1x obsidian-read setelah context.',
+    'Kalau output tool sudah menampilkan backlinks, outgoing, dan tag — kamu sudah punya cukup info. Langsung jawab.',
   ].join('\n');
 }
 
@@ -732,6 +741,9 @@ async function runAgent(userText, config, history = [], ctx = {}) {
   ];
 
   const MAX_STEPS = 5;
+  const MAX_TOOL_CALLS = 3;
+  let toolCallCount = 0;
+  const seenToolCalls = new Set();
 
   for (let step = 1; step <= MAX_STEPS; step++) {
     console.log(`[agent] Step ${step}/${MAX_STEPS}`);
@@ -756,6 +768,38 @@ async function runAgent(userText, config, history = [], ctx = {}) {
     }
 
     const toolDecision = parsed.decision;
+
+    // === Duplicate guard ===
+    const callKey = `${toolDecision.tool}:${JSON.stringify(toolDecision.args || {})}`;
+    if (seenToolCalls.has(callKey)) {
+      console.log(`[agent] Duplicate tool call blocked: ${callKey}`);
+      messages.push({
+        role: 'user',
+        content: [
+          'Tool dengan args yang sama sudah dijalankan sebelumnya.',
+          'JANGAN ulangi. Kamu sudah punya cukup data.',
+          'Sekarang keluarkan JSON action answer dengan rangkuman final.',
+        ].join('\n'),
+      });
+      continue;
+    }
+
+    // === Hard cap tool calls ===
+    if (toolCallCount >= MAX_TOOL_CALLS) {
+      console.log(`[agent] Max tool calls (${MAX_TOOL_CALLS}) reached. Forcing answer.`);
+      messages.push({
+        role: 'user',
+        content: [
+          `Batas maksimum ${MAX_TOOL_CALLS} tool call tercapai.`,
+          'Kamu sudah punya cukup data untuk menjawab.',
+          'Sekarang keluarkan JSON action answer.',
+        ].join('\n'),
+      });
+      continue;
+    }
+
+    seenToolCalls.add(callKey);
+    toolCallCount++;
 
     console.log(
       `[agent] Tool requested: ${toolDecision.tool}`
