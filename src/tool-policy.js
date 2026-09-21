@@ -24,6 +24,8 @@ const TOOL_POLICY = {
   'device-info': 'medium',
   readfile: 'medium',
 
+  'obsidian-read': 'low',
+  'obsidian-search': 'low',
   'obsidian-create': 'high',
   'obsidian-append': 'high',
   'obsidian-update': 'high',

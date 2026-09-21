@@ -729,6 +729,28 @@ async function runAgent(userText, config, history = [], ctx = {}) {
       return execution;
     }
 
+    // === Sensitive note intercept (Layer 2) ===
+    if (
+      typeof execution.result === 'string' &&
+      execution.result.startsWith('[[SENSITIVE-NOTE]]')
+    ) {
+      console.log(
+        '[privacy] Sensitive note detected — bypassing LLM, sending directly to user'
+      );
+
+      const cleaned = execution.result
+        .replace(/^\[\[SENSITIVE-NOTE\]\]\n?/, '')
+        .trim();
+
+      return {
+        status: 'answered',
+        content: cleaned,
+        steps: step,
+        sensitive: true,
+      };
+    }
+    // === end Sensitive note intercept ===
+
     messages.push({
       role: 'assistant',
       content: raw,

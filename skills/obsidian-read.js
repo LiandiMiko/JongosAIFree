@@ -44,6 +44,11 @@ function findNote(query) {
   return null;
 }
 
+function isSensitive(frontmatter) {
+  if (!frontmatter) return false;
+  return /^sensitive\s*:\s*(true|yes|1)\s*$/im.test(frontmatter);
+}
+
 function parseFrontmatter(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) return { frontmatter: null, body: content };
@@ -84,7 +89,13 @@ module.exports = {
       const { frontmatter, body } = parseFrontmatter(raw);
       const rel = path.relative(VAULT_DIR, file);
 
-      const parts = [`📄 **${rel}**`];
+      const sensitive = isSensitive(frontmatter);
+
+      const parts = [];
+      if (sensitive) {
+        parts.push('[[SENSITIVE-NOTE]]');
+      }
+      parts.push(`📄 **${rel}**`);
       if (frontmatter) {
         parts.push('', '```yaml', frontmatter, '```');
       }
