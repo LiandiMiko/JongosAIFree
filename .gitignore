@@ -7,3 +7,4 @@ data/
 src/*.before-*.js
 src/*.backup.js
 src/*.working-*.js
+memory/second-brain/
