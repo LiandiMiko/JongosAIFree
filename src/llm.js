@@ -17,17 +17,19 @@ const PROVIDERS = {
   openrouter: {
     name: 'OpenRouter',
     models: [
-      'openrouter/free',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'google/gemma-4-31b-it:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
+      // Model stabil dulu (support JSON mode + tool calling)
       'meta-llama/llama-3.3-70b-instruct:free',
-      'deepseek/deepseek-r1-0528:free',
-      'google/gemma-3-27b-it:free',
       'qwen/qwen3-coder:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free',
-      'nvidia/nemotron-3-nano-30b-a3b:free',
       'openai/gpt-oss-120b:free',
+      'deepseek/deepseek-r1-0528:free',
+      'mistralai/mistral-small-3.1-24b-instruct:free',
+      'nvidia/nemotron-3-super-120b-a12b:free',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'google/gemma-3-27b-it:free',
+      'google/gemma-4-31b-it:free',
+      'nvidia/nemotron-3-nano-30b-a3b:free',
+      // Auto-router sebagai last resort (kadang pilih model aneh)
+      'openrouter/free',
     ],
   },
 

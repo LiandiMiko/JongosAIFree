@@ -719,12 +719,40 @@ async function askAgent(userText, config, history = []) {
     },
   ];
 
-  const raw = await callLLM(messages, config, { json: true });
+  const { raw, parsed } = await callLLMWithJsonRetry(messages, config);
 
   return {
     raw,
     parsed: parseAgentDecision(raw),
   };
+}
+
+async function callLLMWithJsonRetry(messages, config) {
+  let raw = await callLLM(messages, config, { json: true });
+  let parsed = parseAgentDecision(raw);
+
+  if (parsed.valid) {
+    return { raw, parsed };
+  }
+
+  // Retry 1x dengan peringatan lebih keras
+  console.log('[agent] JSON parse failed — retrying with stricter prompt');
+  const retryMessages = [
+    ...messages,
+    {
+      role: 'user',
+      content: [
+        'PERINGATAN KERAS: Response sebelumnya BUKAN JSON valid.',
+        'Kamu WAJIB mengeluarkan HANYA satu objek JSON.',
+        'Format: {"action":"answer","content":"..."} atau {"action":"tool","tool":"nama","args":{...}}',
+        'JANGAN tambahkan teks apapun di luar JSON. JANGAN pakai markdown code fence.',
+      ].join('\n'),
+    },
+  ];
+
+  raw = await callLLM(retryMessages, config, { json: true });
+  parsed = parseAgentDecision(raw);
+  return { raw, parsed };
 }
 
 async function runAgent(userText, config, history = [], ctx = {}) {
