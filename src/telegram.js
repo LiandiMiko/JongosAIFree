@@ -26,7 +26,19 @@ const AGENT_TRIGGERS = [
   /\bbaterai\b/i, /\bbattery\b/i, /\bdevice\b/i, /\binfo hp\b/i,
   // Skills
   /\bskill\b/i, /\bclawd-scan\b/i, /\bping\b/i,
-  // Slash commands handled separately
+
+  // Real-time data (butuh fetch)
+  /\bberita\b/i, /\bnews\b/i,
+  /\bcuaca\b/i, /\bweather\b/i,
+  /\bharga\b/i, /\bprice\b/i, /\bkurs\b/i,
+  /\bbtc\b/i, /\bbitcoin\b/i, /\beth\b/i, /\bcrypto\b/i,
+  /\bsaham\b/i, /\bstock\b/i,
+  /\bskor\b/i, /\bhasil pertandingan\b/i,
+  /\bterbaru\b/i, /\bterkini\b/i, /\bhari ini\b/i,
+  /\bsekarang\b/i, /\brealtime\b/i, /\breal-time\b/i,
+  /\bcek di internet\b/i, /\bcari di internet\b/i, /\bgoogle\b/i,
+  /\burl\b/i, /\bwebsite\b/i, /\blink\b/i,
+  /https?:\/\//i,
 ];
 
 function needsAgentLoop(text) {
@@ -128,11 +140,25 @@ function startTelegram(config) {
 
         console.log(`[telegram] Fast-chat history: ${fullHistory.length} → ${history.length} msgs`);
 
+        const today = new Date().toLocaleDateString('id-ID', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        const isoDate = new Date().toISOString().slice(0, 10);
+
+        const systemPrompt = [
+          'Kamu adalah Paijo, asisten AI yang ramah dan jujur.',
+          `Hari ini: ${today} (ISO: ${isoDate}).`,
+          '',
+          'ATURAN:',
+          '1. Jawab singkat, natural, dalam bahasa Indonesia.',
+          '2. JANGAN mengarang fakta. Kalau tidak tahu, katakan tidak tahu.',
+          '3. JANGAN mengarang harga, kurs, berita, skor, atau data real-time apapun.',
+          '4. Untuk pertanyaan tentang data terkini (harga crypto, berita, cuaca), katakan bahwa kamu tidak punya akses internet dan sarankan user cek sumber langsung.',
+          '5. Gunakan tanggal di atas kalau ditanya tentang hari/tanggal/tahun.',
+        ].join('\n');
+
         const messages = [
-          {
-            role: 'system',
-            content: 'Kamu adalah Paijo, asisten AI yang ramah. Jawab singkat, natural, dalam bahasa Indonesia.',
-          },
+          { role: 'system', content: systemPrompt },
           ...history,
           { role: 'user', content: text },
         ];
