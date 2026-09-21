@@ -95,7 +95,7 @@ function isQuotaError(status, data) {
    GEMINI
 ========================= */
 
-function buildGeminiRequest(messages) {
+function buildGeminiRequest(messages, options = {}) {
   const systemMessages = messages.filter(
     (message) => message.role === 'system'
   );
@@ -113,12 +113,18 @@ function buildGeminiRequest(messages) {
     ],
   }));
 
+  const generationConfig = {
+    maxOutputTokens: 2048,
+    temperature: 0.7,
+  };
+
+  if (options.json) {
+    generationConfig.responseMimeType = 'application/json';
+  }
+
   const body = {
     contents,
-    generationConfig: {
-      maxOutputTokens: 2048,
-      temperature: 0.7,
-    },
+    generationConfig,
   };
 
   if (systemMessages.length > 0) {
@@ -137,7 +143,7 @@ function buildGeminiRequest(messages) {
 }
 
 
-async function callGemini(messages, model) {
+async function callGemini(messages, model, options = {}) {
   const apiKeys = getGeminiApiKeys();
 
   if (apiKeys.length === 0) {
@@ -163,7 +169,7 @@ async function callGemini(messages, model) {
 
       const response = await axios.post(
         url,
-        buildGeminiRequest(messages),
+        buildGeminiRequest(messages, options),
         {
           headers: {
             'x-goog-api-key': apiKey,
@@ -303,7 +309,7 @@ async function callGemini(messages, model) {
    OPENROUTER
 ========================= */
 
-async function callOpenRouter(messages, model) {
+async function callOpenRouter(messages, model, options = {}) {
   const apiKey = getApiKey('openrouter');
 
   if (!apiKey) {
@@ -319,6 +325,9 @@ async function callOpenRouter(messages, model) {
         model,
         messages,
         max_tokens: 2048,
+        ...(options.json
+          ? { response_format: { type: 'json_object' } }
+          : {}),
       },
       {
         headers: {
@@ -420,7 +429,7 @@ async function callOpenRouter(messages, model) {
    MISTRAL
 ========================= */
 
-async function callMistral(messages, model) {
+async function callMistral(messages, model, options = {}) {
   const apiKey = getApiKey('mistral');
 
   if (!apiKey) {
@@ -437,6 +446,9 @@ async function callMistral(messages, model) {
         messages,
         max_tokens: 2048,
         temperature: 0.7,
+        ...(options.json
+          ? { response_format: { type: 'json_object' } }
+          : {}),
       },
       {
         headers: {
@@ -530,7 +542,7 @@ async function callMistral(messages, model) {
    MAIN LLM ROUTER
 ========================= */
 
-async function callLLM(messages, config) {
+async function callLLM(messages, config, options = {}) {
   // === Secret Scanner (Layer 1) ===
   const scan = scanMessages(messages);
   if (scan.detections.length > 0) {
@@ -599,15 +611,15 @@ async function callLLM(messages, config) {
 
     try {
       if (provider === 'gemini') {
-        return await callGemini(messages, model);
+        return await callGemini(messages, model, options);
       }
 
       if (provider === 'openrouter') {
-        return await callOpenRouter(messages, model);
+        return await callOpenRouter(messages, model, options);
       }
 
       if (provider === 'mistral') {
-        return await callMistral(messages, model);
+        return await callMistral(messages, model, options);
       }
 
       throw new Error(

@@ -719,7 +719,7 @@ async function askAgent(userText, config, history = []) {
     },
   ];
 
-  const raw = await callLLM(messages, config);
+  const raw = await callLLM(messages, config, { json: true });
 
   return {
     raw,
@@ -748,7 +748,7 @@ async function runAgent(userText, config, history = [], ctx = {}) {
   for (let step = 1; step <= MAX_STEPS; step++) {
     console.log(`[agent] Step ${step}/${MAX_STEPS}`);
 
-    const raw = await callLLM(messages, config);
+    const raw = await callLLM(messages, config, { json: true });
     const parsed = parseAgentDecision(raw);
 
     if (!parsed.valid) {
@@ -962,7 +962,7 @@ async function continueAgentAfterApproval(
       ].join('\n'),
     });
 
-    const raw = await callLLM(messages, config);
+    const raw = await callLLM(messages, config, { json: true });
     const parsed = parseAgentDecision(raw);
 
     if (!parsed.valid) {
