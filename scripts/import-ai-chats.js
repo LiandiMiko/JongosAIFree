@@ -6,7 +6,7 @@ const HOME = process.env.HOME;
 const PROJECT = path.join(HOME, 'clawd-agent');
 const INBOX = path.join(PROJECT, 'data', 'imports', 'inbox');
 const PROCESSED = path.join(PROJECT, 'data', 'imports', 'processed');
-const VAULT = path.join(PROJECT, 'memory', 'second-brain');
+const VAULT = process.env.OBSIDIAN_VAULT || path.join(PROJECT, 'memory', 'second-brain');
 const OUT_ROOT = path.join(VAULT, '07 Imported', 'AI Chats');
 
 const args = process.argv.slice(2);
