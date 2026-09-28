@@ -34,6 +34,7 @@ const hasMistralKey = process.env.MISTRAL_API_KEY;
 const hasLlamaCpp = !!process.env.LLAMACPP_URL;
 const hasGroq = !!process.env.GROQ_API_KEY;
 const hasSambaNova = !!process.env.SAMBANOVA_API_KEY;
+const hasLLM7 = !!process.env.LLM7_API_KEY;
 
 const configuredProvider = (config.provider || "gemini").toLowerCase();
 const providerKeys = {
@@ -43,6 +44,7 @@ const providerKeys = {
   llamacpp: hasLlamaCpp,
   groq: hasGroq,
   sambanova: hasSambaNova,
+  llm7: hasLLM7,
 };
 
 if (!providerKeys[configuredProvider]) {

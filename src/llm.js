@@ -26,6 +26,11 @@ function markModelUnhealthy(provider, model) {
 // === end Model health cache ===
 
 const PROVIDERS = {
+  llm7: {
+    name: 'LLM7.io',
+    models: ['default'],
+  },
+
   groq: {
     name: 'Groq',
     models: [
@@ -86,6 +91,10 @@ const PROVIDERS = {
 const GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
+const LLM7_URL =
+  process.env.LLM7_URL ||
+  'https://api.llm7.io/v1';
+
 const SAMBANOVA_URL =
   process.env.SAMBANOVA_URL ||
   'https://api.sambanova.ai/v1';
@@ -122,6 +131,7 @@ function getGeminiApiKeys() {
 
 function getApiKey(provider) {
   const keys = {
+    llm7: process.env.LLM7_API_KEY || 'unused',
     groq: process.env.GROQ_API_KEY,
     sambanova: process.env.SAMBANOVA_API_KEY,
     llamacpp: process.env.LLAMACPP_API_KEY || 'local',
@@ -433,6 +443,63 @@ function sanitizeForLlamaCpp(messages) {
   }
 
   return out;
+}
+
+async function callLLM7(messages, model, options = {}) {
+  const apiKey = getApiKey('llm7');
+
+  try {
+    const response = await axios.post(
+      `${LLM7_URL}/chat/completions`,
+      {
+        model,
+        messages,
+        max_tokens: 2048,
+        temperature: 0.7,
+        ...(options.json
+          ? { response_format: { type: 'json_object' } }
+          : {}),
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        timeout: 60000,
+      }
+    );
+
+    const text =
+      response.data?.choices?.[0]?.message?.content?.trim();
+
+    if (!text) {
+      throw new Error('LLM7 tidak mengembalikan response.');
+    }
+
+    const usage = response.data?.usage || {};
+
+    recordUsage('llm7', model, {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+    });
+
+    markSuccess('llm7', model, { lastError: null });
+
+    return text;
+  } catch (error) {
+    if (error.response?.status === 402) {
+      const err = new Error('LLM7 insufficient balance');
+      err.quota = true;
+      throw err;
+    }
+    if (error.response?.status === 429) {
+      const err = new Error('LLM7 rate limit');
+      err.quota = true;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 async function callSambaNova(messages, model, options = {}) {
@@ -931,6 +998,10 @@ async function callLLM(messages, config, options = {}) {
     );
 
     try {
+      if (provider === 'llm7') {
+        return await callLLM7(messages, model, options);
+      }
+
       if (provider === 'sambanova') {
         return await callSambaNova(messages, model, options);
       }
