@@ -32,6 +32,7 @@ const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_
 const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
 const hasMistralKey = process.env.MISTRAL_API_KEY;
 const hasLlamaCpp = !!process.env.LLAMACPP_URL;
+const hasGroq = !!process.env.GROQ_API_KEY;
 
 const configuredProvider = (config.provider || "gemini").toLowerCase();
 const providerKeys = {
@@ -39,6 +40,7 @@ const providerKeys = {
   openrouter: hasOpenRouterKey,
   mistral: hasMistralKey,
   llamacpp: hasLlamaCpp,
+  groq: hasGroq,
 };
 
 if (!providerKeys[configuredProvider]) {

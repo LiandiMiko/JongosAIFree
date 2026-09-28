@@ -26,6 +26,18 @@ function markModelUnhealthy(provider, model) {
 // === end Model health cache ===
 
 const PROVIDERS = {
+  groq: {
+    name: 'Groq',
+    models: [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+      'qwen/qwen3-32b',
+      'moonshotai/kimi-k2-instruct',
+    ],
+  },
+
   llamacpp: {
     name: 'Local (llama.cpp)',
     models: [
@@ -70,6 +82,10 @@ const PROVIDERS = {
 const GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
+const GROQ_URL =
+  process.env.GROQ_URL ||
+  'https://api.groq.com/openai/v1';
+
 const LLAMACPP_URL =
   process.env.LLAMACPP_URL ||
   'http://127.0.0.1:8080/v1';
@@ -98,6 +114,7 @@ function getGeminiApiKeys() {
 
 function getApiKey(provider) {
   const keys = {
+    groq: process.env.GROQ_API_KEY,
     llamacpp: process.env.LLAMACPP_API_KEY || 'local',
     openrouter: process.env.OPENROUTER_API_KEY,
     mistral: process.env.MISTRAL_API_KEY,
@@ -407,6 +424,64 @@ function sanitizeForLlamaCpp(messages) {
   }
 
   return out;
+}
+
+async function callGroq(messages, model, options = {}) {
+  const apiKey = getApiKey('groq');
+
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY tidak ditemukan di .env');
+  }
+
+  try {
+    const response = await axios.post(
+      `${GROQ_URL}/chat/completions`,
+      {
+        model,
+        messages,
+        max_tokens: 2048,
+        temperature: 0.7,
+        ...(options.json
+          ? { response_format: { type: 'json_object' } }
+          : {}),
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        timeout: 60000,
+      }
+    );
+
+    const text =
+      response.data?.choices?.[0]?.message?.content?.trim();
+
+    if (!text) {
+      throw new Error('Groq tidak mengembalikan response.');
+    }
+
+    const usage = response.data?.usage || {};
+
+    recordUsage('groq', model, {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+    });
+
+    markSuccess('groq', model, { lastError: null });
+
+    return text;
+  } catch (error) {
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers?.['retry-after'];
+      const err = new Error(`Groq rate limit: ${error.response?.data?.error?.message || 'unknown'}`);
+      err.quota = true;
+      err.retryAfter = retryAfter ? Number(retryAfter) : null;
+      throw err;
+    }
+    throw error;
+  }
 }
 
 async function callLlamaCpp(messages, model, options = {}) {
@@ -789,6 +864,10 @@ async function callLLM(messages, config, options = {}) {
     );
 
     try {
+      if (provider === 'groq') {
+        return await callGroq(messages, model, options);
+      }
+
       if (provider === 'llamacpp') {
         return await callLlamaCpp(messages, model, options);
       }
