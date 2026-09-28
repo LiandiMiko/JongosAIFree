@@ -16,6 +16,8 @@ const {
 const AGENT_TRIGGERS = [
   // Obsidian
   /\bnote\b/i, /\bcatat\b/i, /\bcari\b/i, /\bbaca\b/i,
+  /\bbuka\b/i, /\bbukain\b/i, /\bshow\b/i, /\bdisplay\b/i,
+  /\bfile\b/i, /\bdokumen\b/i, /\btampilkan\b/i, /\bliat\b/i,
   /\bobsidian\b/i, /\bvault\b/i, /\btag\b/i, /\bbacklink\b/i,
   /\bknowledge\b/i, /\bprogres\b/i, /\bprogress\b/i,
   /\bfolder\b/i, /\bstruktur\b/i, /\btree\b/i, /\bdirektori\b/i,
