@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paijo Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0f14;
+      color: #e0e0e0;
+      font-family: 'Courier New', monospace;
+      padding: 16px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1a1d26;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .header h1 { color: #ff6b6b; font-size: 18px; letter-spacing: 1px; }
+    .header a { color: #4ecdc4; text-decoration: none; font-size: 13px; }
+    .header a:hover { text-decoration: underline; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: #141721;
+      border: 1px solid #1f2330;
+      border-radius: 6px;
+      padding: 14px;
+    }
+    .card h2 {
+      font-size: 13px;
+      color: #4ecdc4;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px dashed #1f2330;
+      display: flex;
+      justify-content: space-between;
+    }
+    .card h2 .badge {
+      font-size: 10px;
+      color: #666;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    /* Stats grid */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .stat {
+      text-align: center;
+      padding: 10px 4px;
+      background: #0d0f14;
+      border-radius: 4px;
+    }
+    .stat .num { font-size: 22px; color: #ff6b6b; font-weight: bold; }
+    .stat .label { font-size: 10px; color: #666; margin-top: 2px; }
+
+    /* Provider list */
+    .provider {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #1a1d26;
+      font-size: 12px;
+    }
+    .provider:last-child { border-bottom: none; }
+    .provider .name { color: #e0e0e0; }
+    .provider .name .key { color: #666; font-size: 10px; }
+    .provider .name .req { color: #888; font-size: 10px; }
+    .status {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .status.available { background: #1a3d2b; color: #4ecdc4; }
+    .status.rate_limited { background: #3d2a1a; color: #f4a460; }
+    .status.error { background: #3d1a1a; color: #ff6b6b; }
+    .status.unknown { background: #1a1d26; color: #666; }
+
+    /* Skills */
+    .skill {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      font-size: 12px;
+    }
+    .skill .risk {
+      font-size: 9px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    .risk.low { background: #1a3d2b; color: #4ecdc4; }
+    .risk.medium { background: #3d3a1a; color: #f4d03f; }
+    .risk.high { background: #3d1a1a; color: #ff6b6b; }
+
+    /* Tree */
+    pre.tree {
+      background: #0d0f14;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #b8c1cc;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre;
+    }
+
+    /* Tags */
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .tag {
+      background: #1a1d26;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #4ecdc4;
+    }
+    .tag .count { color: #666; margin-left: 3px; }
+
+    /* Loading */
+    .loading { color: #666; font-size: 11px; font-style: italic; }
+
+    /* Refresh button */
+    .refresh-btn {
+      background: #1a1d26;
+      color: #4ecdc4;
+      border: 1px solid #2a2f42;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .refresh-btn:hover { background: #2a2f42; }
+
+    @media (max-width: 480px) {
+      .stat-grid { grid-template-columns: repeat(3, 1fr); }
+      .stat .num { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🦞 PAJIO DASHBOARD</h1>
+    <div>
+      <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+      <a href="/" style="margin-left: 12px;">← Chat</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Vault Stats -->
+    <div class="card">
+      <h2>📁 Vault Stats <span class="badge" id="vault-path"></span></h2>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="num" id="stat-md">-</div>
+          <div class="label">.md files</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="stat-folders">-</div>
+          <div class="label">folders</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="stat-skills">-</div>
+          <div class="label">skills</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Providers -->
+    <div class="card">
+      <h2>⚡ Providers <span class="badge" id="provider-count"></span></h2>
+      <div id="providers">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Skills -->
+    <div class="card">
+      <h2>🛠️ Skills <span class="badge" id="skills-badge"></span></h2>
+      <div id="skills" style="max-height: 300px; overflow-y: auto;">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Tags -->
+    <div class="card">
+      <h2>🏷️ Top Tags</h2>
+      <div class="tag-list" id="tags">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Tree -->
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2>🌳 Vault Tree</h2>
+      <pre class="tree" id="tree">Loading...</pre>
+    </div>
+  </div>
+
+  <script>
+    async function loadStatus() {
+      try {
+        const r = await fetch('/api/status');
+        const data = await r.json();
+        const providers = data.providers || [];
+
+        document.getElementById('provider-count').textContent = providers.length + ' total';
+
+        if (providers.length === 0) {
+          document.getElementById('providers').innerHTML =
+            '<div class="loading">Belum ada data usage.</div>';
+          return;
+        }
+
+        // Sort: available dulu, terus rate_limited, terakhir error/unknown
+        const order = { available: 0, rate_limited: 1, error: 2, unknown: 3 };
+        providers.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+
+        const html = providers.map((p) => {
+          const keyLabel = p.keyId != null ? ` <span class="key">(key #${p.keyId})</span>` : '';
+          const req = p.usage?.requests || 0;
+          return `
+            <div class="provider">
+              <div>
+                <div class="name">${p.provider}/${p.model}${keyLabel}</div>
+                <div class="req">${req} req</div>
+              </div>
+              <span class="status ${p.status}">${p.status}</span>
+            </div>
+          `;
+        }).join('');
+
+        document.getElementById('providers').innerHTML = html;
+      } catch (e) {
+        document.getElementById('providers').innerHTML =
+          `<div class="loading">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function loadSkills() {
+      try {
+        const r = await fetch('/api/skills');
+        const data = await r.json();
+        const skills = data.skills || [];
+
+        document.getElementById('stat-skills').textContent = skills.length;
+        document.getElementById('skills-badge').textContent = skills.length + ' loaded';
+
+        const html = skills.map((s) => `
+          <div class="skill">
+            <span>${s.name}</span>
+            <span class="risk ${s.risk}">${s.label}</span>
+          </div>
+        `).join('');
+
+        document.getElementById('skills').innerHTML = html;
+      } catch (e) {
+        document.getElementById('skills').innerHTML =
+          `<div class="loading">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const r = await fetch('/api/stats');
+        const data = await r.json();
+
+        document.getElementById('stat-md').textContent = data.mdCount || 0;
+        document.getElementById('stat-folders').textContent = data.folderCount || 0;
+        document.getElementById('vault-path').textContent = data.vault ? data.vault.split('/').pop() : '';
+
+        // Parse tags dari output
+        const tagsText = data.tags || '';
+        const tagLines = tagsText.split('\n').filter((l) => l.includes('`#'));
+        const tagsHtml = tagLines.slice(0, 20).map((line) => {
+          const m = line.match(/`#([^`]+)`\s*—\s*(\d+)/);
+          if (!m) return '';
+          return `<span class="tag">#${m[1]} <span class="count">${m[2]}</span></span>`;
+        }).join('');
+
+        document.getElementById('tags').innerHTML = tagsHtml || '<div class="loading">Tidak ada tag.</div>';
+      } catch (e) {
+        console.error('Stats error:', e);
+      }
+    }
+
+    async function loadTree() {
+      try {
+        const r = await fetch('/api/tree');
+        const data = await r.json();
+        // Extract cuma bagian dalam ``` ```
+        const tree = data.tree || '';
+        const match = tree.match(/\`\`\`\n([\s\S]*?)\n\`\`\`/);
+        document.getElementById('tree').textContent = match ? match[1] : tree;
+      } catch (e) {
+        document.getElementById('tree').textContent = `Error: ${e.message}`;
+      }
+    }
+
+    function refreshAll() {
+      loadStatus();
+      loadSkills();
+      loadStats();
+      loadTree();
+    }
+
+    // Initial load
+    refreshAll();
+
+    // Auto-refresh status tiap 15 detik
+    setInterval(loadStatus, 15000);
+  </script>
+</body>
+</html>
