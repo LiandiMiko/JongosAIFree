@@ -77,6 +77,13 @@ const TOOL_ARG_SCHEMAS = {
     types: {},
   },
 
+  'obsidian-tree': {
+    required: [],
+    types: {
+      path: 'string',
+    },
+  },
+
   'obsidian-backlinks': {
     required: ['note'],
     types: {
@@ -294,6 +301,11 @@ function buildSkillInput(tool, args = {}) {
 
     case 'obsidian-tags':
       return 'obsidian-tags';
+
+    case 'obsidian-tree':
+      return args.path
+        ? `obsidian-tree: ${args.path}`
+        : 'obsidian-tree';
 
     case 'obsidian-backlinks':
       return `obsidian-backlinks: ${args.note || ''}`;
@@ -528,6 +540,12 @@ function parseAgentDecision(raw) {
     };
   }
 
+  // === DEBUG: log raw decision ===
+  if (decision && typeof decision === 'object') {
+    console.log('[agent] Parsed decision:', JSON.stringify(decision).slice(0, 300));
+  }
+  // === end debug ===
+
   if (!decision || typeof decision !== 'object') {
     return {
       valid: false,
@@ -707,6 +725,12 @@ function buildAgentPrompt() {
     '3. Format entry: "- [YYYY-MM-DD] deskripsi singkat progres".',
     '4. Tanggal WAJIB pakai tanggal hari ini (cek dari system prompt "Hari ini").',
     '5. Kalau ragu note mana targetnya, tanya user dulu sebelum bikin note baru.',
+    '',
+    'ATURAN TREE / FOLDER:',
+    'Kalau user tanya struktur folder, list folder, tree, isi vault, atau isi direktori:',
+    '- Gunakan skill obsidian-tree.',
+    '- Kalau user sebut folder spesifik (misal "04 Knowledge"), pakai obsidian-tree dengan path.',
+    '- JANGAN pakai shell (ls, find, tree) untuk ini — pakai obsidian-tree.',
     '',
     'ATURAN FETCH (data real-time):',
     'Kalau user tanya tentang data yang bisa berubah (harga crypto, kurs, berita, cuaca, skor):',

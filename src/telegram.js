@@ -18,6 +18,8 @@ const AGENT_TRIGGERS = [
   /\bnote\b/i, /\bcatat\b/i, /\bcari\b/i, /\bbaca\b/i,
   /\bobsidian\b/i, /\bvault\b/i, /\btag\b/i, /\bbacklink\b/i,
   /\bknowledge\b/i, /\bprogres\b/i, /\bprogress\b/i,
+  /\bfolder\b/i, /\bstruktur\b/i, /\btree\b/i, /\bdirektori\b/i,
+  /\blist.*folder\b/i, /\bfolder.*apa\b/i, /\bisi folder\b/i,
   // File
   /\bread:/i, /\bbaca file\b/i, /\bwrite:/i,
   // Shell
