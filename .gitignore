@@ -8,3 +8,9 @@ src/*.before-*.js
 src/*.backup.js
 src/*.working-*.js
 memory/second-brain/
+
+# Import folder — jangan commit file user
+data/imports/inbox/*
+data/imports/processed/*
+!data/imports/inbox/.gitkeep
+!data/imports/processed/.gitkeep
