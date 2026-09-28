@@ -38,9 +38,6 @@ const PROVIDERS = {
   sambanova: {
     name: 'SambaNova',
     models: [
-      'Meta-Llama-3.3-70B-Instruct',
-      'gpt-oss-120b',
-      'DeepSeek-V3.2',
       'gemma-4-31B-it',
     ],
   },
@@ -138,7 +135,7 @@ function getApiKey(provider) {
 
 function isModelUnavailable(error) {
   const status = error?.response?.status;
-  if (status !== 404 && status !== 400) return false;
+  if (status !== 404 && status !== 400 && status !== 402 && status !== 403) return false;
   const msg = String(
     error?.response?.data?.error?.message ||
     error?.message ||
