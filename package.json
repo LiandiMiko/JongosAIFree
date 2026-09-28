@@ -1,7 +1,7 @@
 {
   "name": "clawd-agent",
   "version": "1.0.0",
-  "description": "Lightweight self-hosted AI agent \u2014 Termux-ready, OpenRouter, Telegram + Web UI",
+  "description": "JongosAIFree — personal AI agent (Termux/Desktop) with Telegram bot, WebUI dashboard, Obsidian memory, and multi-provider routing",
   "main": "index.js",
   "bin": {
     "clawd": "./cli.js"
@@ -9,9 +9,22 @@
   "scripts": {
     "start": "node index.js",
     "setup": "node setup.js",
-    "clawd": "node cli.js"
+    "dev": "node --watch index.js",
+    "clawd": "node cli.js",
+    "import": "node scripts/import-ai-chats.js"
   },
-  "keywords": ["ai", "agent", "telegram", "termux", "openrouter"],
+  "keywords": [
+    "ai",
+    "agent",
+    "telegram",
+    "termux",
+    "openrouter",
+    "groq",
+    "gemini",
+    "mistral",
+    "obsidian",
+    "llm"
+  ],
   "author": "zx_joy_",
   "license": "MIT",
   "dependencies": {
@@ -21,5 +34,8 @@
     "axios": "^1.6.7",
     "enquirer": "^2.4.1",
     "dotenv": "^16.4.1"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
