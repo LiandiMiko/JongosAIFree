@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Clawd Agent CLI — Interactive terminal interface
+ * JongosAIFree CLI — Interactive terminal interface
  * Usage: node cli.js [command]
  *
  * Commands:
@@ -68,7 +68,7 @@ async function onboard() {
   box([
     `${c.yellow}Security notice — please read.${c.reset}`,
     '',
-    'Clawd Agent connects to OpenRouter to process messages.',
+    'JongosAIFree connects to OpenRouter to process messages.',
     'Your API key is stored locally in config.json.',
     'Device access skills can read sensors, location, camera.',
     '',
@@ -99,7 +99,7 @@ async function onboard() {
   if (existing) {
     section('Existing config detected');
     box([
-      `${c.cyan}agent:${c.reset}    ${existing.agentName || 'Clawd'}`,
+      `${c.cyan}agent:${c.reset}    ${existing.agentName || 'Paijo'}`,
       `${c.cyan}model:${c.reset}    ${existing.model || '(not set)'}`,
       `${c.cyan}key:${c.reset}      ${maskKey(existing.openrouterKey)}`,
       `${c.cyan}telegram:${c.reset} ${existing.telegramToken ? 'configured' : 'not set'}`,
@@ -137,7 +137,7 @@ async function onboard() {
       type: 'input',
       name: 'agentName',
       message: 'Agent name',
-      initial: config.agentName || 'Clawd',
+      initial: config.agentName || 'Paijo',
     });
     config.agentName = agentName;
     step('Agent name', agentName);
@@ -152,7 +152,7 @@ async function onboard() {
       { name: 'mistralai/mistral-small-3.1-24b-instruct:free', message: `${c.green}●${c.reset} Mistral Small 3.1 ${gray('(free)')}` },
       { name: 'qwen/qwen3-coder:free', message: `${c.green}●${c.reset} Qwen3 Coder 480B ${gray('(free, code)')}` },
       { name: 'nvidia/nemotron-3-nano-30b-a3b:free', message: `${c.green}●${c.reset} NVIDIA Nemotron Nano ${gray('(free)')}` },
-      { name: 'openai/gpt-oss-120b:free', message: `${c.green}●${c.reset} OpenAI GPT-OSS 120B ${gray('(free)')}` },
+      { name: 'llama-3.3-70b-versatile', message: `${c.green}●${c.reset} Llama 3.3 70B (Groq) ${gray('(free)')}` },
       { name: 'minimax/minimax-m2.5', message: `${c.yellow}●${c.reset} MiniMax M2.5 ${gray('(paid)')}` },
       { name: 'anthropic/claude-haiku-4-5', message: `${c.yellow}●${c.reset} Claude Haiku 4.5 ${gray('(paid, quality)')}` },
       { name: 'openrouter/auto', message: `${c.cyan}●${c.reset} Auto ${gray('(OpenRouter picks best)')}` },
@@ -314,7 +314,7 @@ async function startAgent() {
 
   nl();
   divider();
-  console.log(`  ${LOBSTER} ${bold(red('Clawd Agent is live.'))} ${LOBSTER}`);
+  console.log(`  ${LOBSTER} ${bold(red('JongosAIFree is live.'))} ${LOBSTER}`);
   console.log(`  ${gray('Press Ctrl+C to stop.')}`);
   divider();
   nl();
@@ -334,7 +334,7 @@ async function configCmd() {
 
   section('Current Configuration');
   box([
-    `${c.cyan}agent:${c.reset}     ${config.agentName || 'Clawd'}`,
+    `${c.cyan}agent:${c.reset}     ${config.agentName || 'Paijo'}`,
     `${c.cyan}model:${c.reset}     ${config.model || '(not set)'}`,
     `${c.cyan}key:${c.reset}       ${maskKey(config.openrouterKey)}`,
     `${c.cyan}telegram:${c.reset}  ${config.telegramToken ? 'configured' : 'not set'}`,
@@ -443,7 +443,7 @@ async function statusCmd() {
     return;
   }
 
-  status('Agent', config.agentName || 'Clawd', 'green');
+  status('Agent', config.agentName || 'Paijo', 'green');
   status('Model', config.model || '(not set)', 'cyan');
   status('API Key', maskKey(config.openrouterKey), config.openrouterKey ? 'green' : 'red');
   status('Telegram', config.telegramToken ? 'configured' : 'not configured', config.telegramToken ? 'green' : 'gray');
@@ -648,7 +648,7 @@ async function interactiveMenu() {
 
   if (config) {
     box([
-      `${c.cyan}Agent:${c.reset}  ${config.agentName || 'Clawd'}`,
+      `${c.cyan}Agent:${c.reset}  ${config.agentName || 'Paijo'}`,
       `${c.cyan}Model:${c.reset}  ${config.model || '(not set)'}`,
       `${c.cyan}Key:${c.reset}    ${maskKey(config.openrouterKey)}`,
     ]);

@@ -38,45 +38,41 @@ const PROVIDERS = {
   groq: {
     name: 'Groq',
     models: [
-      'openai/gpt-oss-120b',
-      'qwen/qwen3.8-27b',
-      'openai/gpt-oss-20b',
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'gemma2-9b-it',
+      'mixtral-8x7b-32768',
     ],
   },
   sambanova: {
     name: 'SambaNova',
-    models: ['gemma-4-31B-it'],
+    models: ['Meta-Llama-3.3-70B-Instruct', 'Meta-Llama-3.1-8B-Instruct'],
   },
   llamacpp: {
     name: 'Local (llama.cpp)',
-    models: ['gemma-3-4b-it'],
+    models: ['local-model'],
   },
   gemini: {
     name: 'Google Gemini',
     models: [
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-3.1-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash',
     ],
   },
   openrouter: {
     name: 'OpenRouter',
     models: [
-      'qwen/qwen3.8-27b:free',
-      'z-ai/glm-5.2:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'google/gemma-4-31b-it:free',
-      'google/gemma-4-26b-a4b-it:free',
-      'cohere/north-mini-code:free',
-      'poolside/laguna-s-2.1:free',
-      'poolside/laguna-xs-2.1:free',
-      'thinkingmachines/inkling:free',
+      'google/gemma-2-9b-it:free',
+      'meta-llama/llama-3.2-3b-instruct:free',
+      'microsoft/phi-3-mini-128k-instruct:free',
+      'qwen/qwen-2.5-7b-instruct:free',
+      'mistralai/mistral-7b-instruct:free',
     ],
   },
   mistral: {
     name: 'Mistral AI',
-    models: ['mistral-small-latest'],
+    models: ['mistral-small-latest', 'open-mistral-7b'],
   },
 };
 

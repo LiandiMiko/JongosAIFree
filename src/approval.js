@@ -52,6 +52,10 @@ function createApproval(userId, tool, args, policy, context = {}) {
       userText: context.userText || '',
       history: Array.isArray(context.history) ? context.history : [],
       step: Number.isInteger(context.step) ? context.step : 0,
+      toolsUsed: Array.isArray(context.toolsUsed) ? context.toolsUsed : [],
+      toolCallString: context.toolCallString || '',
+      source: context.source || '',
+      ragUsed: !!context.ragUsed,
     })
   ),
 

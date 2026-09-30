@@ -1,7 +1,8 @@
 {
   "agentName": "Paijo",
   "provider": "groq",
-  "model": "openai/gpt-oss-120b",
+  "model": "llama-3.3-70b-versatile",
   "telegramToken": "",
-  "webPort": 3000
+  "webPort": 3000,
+  "maxSteps": 5
 }

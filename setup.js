@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Clawd Agent — Interactive Setup
+ * JongosAIFree — Interactive Setup
  * Cross-platform: Windows / Linux / macOS / Termux
  */
 
@@ -31,7 +31,7 @@ const gray = (s) => c(s, '90');
 function banner() {
   console.log('');
   console.log(cyan(bold('  ╔══════════════════════════════════╗')));
-  console.log(cyan(bold('  ║     🦞 CLAWD AGENT SETUP 🦞     ║')));
+  console.log(cyan(bold('  ║     🦞 JONGOS AI FREE SETUP 🦞     ║')));
   console.log(cyan(bold('  ╚══════════════════════════════════╝')));
   console.log('');
   console.log(gray(`  Platform: ${process.platform} ${os.arch()} • Node ${process.version}`));
@@ -267,7 +267,7 @@ async function main() {
     .filter((k) => providers[k] && providers[k].trim());
 
   let defaultProvider = available[0] || 'gemini';
-  let defaultModel = 'openai/gpt-oss-120b';
+  let defaultModel = 'llama-3.3-70b-versatile';
 
   if (available.length > 0) {
     section('Provider utama');
@@ -289,8 +289,8 @@ async function main() {
 
     // Model default per provider
     const modelDefaults = {
-      groq: 'openai/gpt-oss-120b',
-      gemini: 'gemini-3.6-flash',
+      groq: 'llama-3.3-70b-versatile',
+      gemini: 'gemini-2.0-flash',
       openrouter: 'qwen/qwen3.8-27b:free',
       mistral: 'mistral-small-latest',
       sambanova: 'Meta-Llama-3.3-70B-Instruct',
@@ -312,7 +312,7 @@ async function main() {
     warn('Tidak ada provider yang di-konfigurasi.');
     warn('Kamu harus isi minimal 1 provider di .env sebelum start.');
     defaultProvider = 'gemini';
-    defaultModel = 'gemini-3.6-flash';
+    defaultModel = 'gemini-2.0-flash';
   }
 
   // === Simpan ===
@@ -357,7 +357,7 @@ async function main() {
   if (isTermux) {
     console.log('  ' + gray('Termux tips:'));
     console.log('    ' + cyan('termux-wake-lock') + '                   ' + gray('# Cegah Android matiin proses'));
-    console.log('    ' + cyan('tmux new -s clawd "npm start"') + '      ' + gray('# Biar survive terminal close'));
+    console.log('    ' + cyan('tmux new -s jongos "npm start"') + '      ' + gray('# Biar survive terminal close'));
     console.log('');
   }
 

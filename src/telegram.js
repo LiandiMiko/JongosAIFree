@@ -239,7 +239,7 @@ function startTelegram(config) {
         const isoDate = new Date().toISOString().slice(0, 10);
 
         const systemPrompt = [
-          'Kamu adalah Paijo, asisten AI yang ramah dan jujur.',
+          `Kamu adalah ${config.agentName || 'Paijo'}, asisten AI yang ramah dan jujur.`,
           `Hari ini: ${today} (ISO: ${isoDate}).`,
           '',
           'ATURAN:',
@@ -266,12 +266,11 @@ function startTelegram(config) {
       const result = await runAgent(
         text,
         config,
-        [],
-        { userId }
+        { userId, source: 'telegram' }
       );
 
       if (result.status === 'answered') {
-        await ctx.reply(result.content);
+        await ctx.reply(result.answer);
         return;
       }
 
@@ -370,7 +369,7 @@ function startTelegram(config) {
           await executeApprovedRequest(
             requestId,
             userId,
-            { userId }
+            { userId, config, source: 'telegram' }
           );
 
 	          if (result.status === 'executed') {
@@ -378,7 +377,7 @@ function startTelegram(config) {
             await continueAgentAfterApproval(
               result,
               config,
-              { userId }
+              { userId, source: 'telegram' }
             );
 
           if (continuation.status === 'answered') {

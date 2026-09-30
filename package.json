@@ -1,16 +1,17 @@
 {
-  "name": "clawd-agent",
+  "name": "jongos-ai-free",
   "version": "1.0.0",
   "description": "JongosAIFree — personal AI agent (Termux/Desktop) with Telegram bot, WebUI dashboard, Obsidian memory, and multi-provider routing",
   "main": "index.js",
   "bin": {
+    "jongos": "./cli.js",
     "clawd": "./cli.js"
   },
   "scripts": {
     "start": "node index.js",
     "setup": "node setup.js",
     "dev": "node --watch index.js",
-    "clawd": "node cli.js",
+    "reindex": "node scripts/reindex-vault.js",
     "import": "node scripts/import-ai-chats.js"
   },
   "keywords": [
@@ -23,16 +24,17 @@
     "gemini",
     "mistral",
     "obsidian",
-    "llm"
+    "llm",
+    "rag"
   ],
-  "author": "zx_joy_",
+  "author": "LiandiMiko",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.20.0",
-    "dotenv": "^16.4.1",
+    "dotenv": "^16.6.1",
     "enquirer": "^2.4.1",
     "express": "^4.22.3",
-    "grammy": "^1.21.1",
+    "grammy": "^1.46.0",
     "lowdb": "^7.0.1"
   },
   "engines": {

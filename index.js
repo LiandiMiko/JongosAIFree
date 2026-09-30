@@ -1,9 +1,14 @@
-// Android Bionic patch — MUST be first line before any other require
+// Android Bionic patch — MUST be first before any other require
 const os = require('os');
 const _orig = os.networkInterfaces.bind(os);
-os.networkInterfaces = () => { try { return _orig(); } catch { return {}; } };
+os.networkInterfaces = () => {
+  try {
+    return _orig();
+  } catch {
+    return {};
+  }
+};
 
-// Now safe to require everything else
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -13,9 +18,8 @@ const { startWebUI } = require('./src/webui');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 
-// Check config exists
 if (!fs.existsSync(CONFIG_PATH)) {
-  console.error('No config.json found. Run "node setup.js" first.');
+  console.error('No config.json found. Run "npm run setup" first.');
   process.exit(1);
 }
 
@@ -27,18 +31,21 @@ try {
   process.exit(1);
 }
 
-// Validate required fields
-const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
-const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
-const hasMistralKey = process.env.MISTRAL_API_KEY;
+// Detect configured providers from env
+const hasGeminiKey =
+  process.env.GEMINI_API_KEY_1 ||
+  process.env.GEMINI_API_KEY_2 ||
+  process.env.GEMINI_API_KEY_3;
+const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY;
+const hasMistralKey = !!process.env.MISTRAL_API_KEY;
 const hasLlamaCpp = !!process.env.LLAMACPP_URL;
 const hasGroq = !!process.env.GROQ_API_KEY;
 const hasSambaNova = !!process.env.SAMBANOVA_API_KEY;
 const hasLLM7 = !!process.env.LLM7_API_KEY;
 
-const configuredProvider = (config.provider || "gemini").toLowerCase();
+const configuredProvider = (config.provider || 'groq').toLowerCase();
 const providerKeys = {
-  gemini: hasGeminiKey,
+  gemini: !!hasGeminiKey,
   openrouter: hasOpenRouterKey,
   mistral: hasMistralKey,
   llamacpp: hasLlamaCpp,
@@ -47,24 +54,47 @@ const providerKeys = {
   llm7: hasLLM7,
 };
 
-if (!providerKeys[configuredProvider]) {
-  console.error(`Missing API key for provider "${configuredProvider}" in .env`);
+// Soft check: warn if preferred provider missing, but allow fallback if ANY provider exists
+const anyProvider = Object.values(providerKeys).some(Boolean);
+if (!anyProvider) {
+  console.error(
+    'No API keys found in .env. Run "npm run setup" and add at least one provider key.'
+  );
   process.exit(1);
 }
 
-if (!config.model) {
-  config.model = 'gemini-3.8-flash';
+if (!providerKeys[configuredProvider]) {
+  console.warn(
+    `[warn] Preferred provider "${configuredProvider}" has no key — will fallback to other available providers.`
+  );
 }
 
-console.log(`\n  Clawd Agent v1.0.0`);
-console.log(`  Agent: ${config.agentName || 'Clawd'}`);
-console.log(`  Model: ${config.model}`);
+if (!config.model) {
+  // Sensible defaults per provider
+  const defaults = {
+    groq: 'llama-3.3-70b-versatile',
+    gemini: 'gemini-2.0-flash',
+    openrouter: 'google/gemma-2-9b-it:free',
+    mistral: 'mistral-small-latest',
+    sambanova: 'Meta-Llama-3.3-70B-Instruct',
+    llm7: 'default',
+    llamacpp: 'local-model',
+  };
+  config.model = defaults[configuredProvider] || 'llama-3.3-70b-versatile';
+}
+
+if (!config.agentName) {
+  config.agentName = 'Paijo';
+}
+
+console.log('');
+console.log('  🦞 JongosAIFree v1.0.0');
+console.log(`  Agent    : ${config.agentName}`);
+console.log(`  Provider : ${configuredProvider}`);
+console.log(`  Model    : ${config.model}`);
 console.log('');
 
-// Load skill plugins
 loadSkills();
-
-// Start gateways
 startTelegram(config);
 startWebUI(config);
 

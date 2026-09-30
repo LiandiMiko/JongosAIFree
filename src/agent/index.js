@@ -3,6 +3,7 @@ const {
   validateAgentAction,
   convertActionToToolCallString,
   executeAction,
+  executeApprovedTool,
 } = require('./tool-executor');
 const {
   buildToolManifest,
@@ -15,6 +16,7 @@ module.exports = {
   validateAgentAction,
   convertActionToToolCallString,
   executeAction,
+  executeApprovedTool,
   buildToolManifest,
   buildAgentSystemPrompt,
   parseAgentResponse,

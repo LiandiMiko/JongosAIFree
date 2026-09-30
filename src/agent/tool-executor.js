@@ -1,7 +1,9 @@
 const { loadSkills, getSkillManifest, runSkillByName } = require('../skills');
 const { checkPermission } = require('../permission');
 const { createApproval } = require('../approval');
+const { getToolPolicy } = require('../tool-policy');
 
+// Ensure skills are loaded once
 loadSkills();
 
 const TOOL_ARG_SCHEMAS = {
@@ -10,7 +12,7 @@ const TOOL_ARG_SCHEMAS = {
   writefile: { required: ['path', 'content'], types: { path: 'string', content: 'string' } },
   'obsidian-read': { required: ['note'], types: { note: 'string' } },
   'obsidian-search': { required: ['query'], types: { query: 'string' } },
-  'obsidian-tags': { required: [], types: {} },
+  'obsidian-tags': { required: [], types: { tag: 'string' } },
   'obsidian-tree': { required: [], types: { path: 'string' } },
   'obsidian-backlinks': { required: ['note'], types: { note: 'string' } },
   'obsidian-context': { required: ['query'], types: { query: 'string' } },
@@ -75,7 +77,10 @@ function validateAgentAction(parsed) {
         if (key in args && args[key] !== null && args[key] !== undefined) {
           const actualType = typeof args[key];
           if (actualType !== expectedType) {
-            return { valid: false, reason: `Argumen "${key}" pada tool "${tool}" harus bertipe ${expectedType}, tapi dapat ${actualType}` };
+            return {
+              valid: false,
+              reason: `Argumen "${key}" pada tool "${tool}" harus bertipe ${expectedType}, tapi dapat ${actualType}`,
+            };
           }
         }
       }
@@ -111,13 +116,91 @@ function convertActionToToolCallString(parsed) {
   if (tool === 'device-info') return `device-info`;
   if (tool === 'remember') return `remember: ${args.fact || ''}`;
   if (tool === 'clawd-scan') return `clawd-scan`;
+  if (tool === 'addskill') return `addskill: ${JSON.stringify(args)}`;
+  if (tool === 'delskills') return `delskills: ${args.name || ''}`;
 
   return `${tool}: ${JSON.stringify(args)}`;
 }
 
+/**
+ * Execute a parsed agent action (tool call).
+ * Returns structured result:
+ *   { status: 'success', output }
+ *   { status: 'blocked', error }
+ *   { status: 'error', error }
+ *   { status: 'approval_required', requestId, tool, args, policy, message }
+ */
 async function executeAction(parsed, meta = {}) {
-  const { tool } = parsed;
+  const { tool, args = {} } = parsed;
   const toolCallString = convertActionToToolCallString(parsed);
+  const userId = meta.userId || meta.user || 'anonymous';
+
+  // Security permission check
+  const perm = checkPermission(toolCallString);
+  if (!perm.allowed) {
+    return {
+      status: 'blocked',
+      error: `[SECURITY] ${perm.reason}`,
+    };
+  }
+
+  // Risk / approval gate
+  const policy = getToolPolicy(tool);
+  if (policy.level >= 2) {
+    // HIGH risk → require user approval
+    const request = createApproval(userId, tool, args, policy, {
+      userText: meta.userText || '',
+      history: meta.history || [],
+      step: meta.step || 0,
+      toolCallString,
+      source: meta.source || 'agent',
+    });
+
+    return {
+      status: 'approval_required',
+      requestId: request.requestId,
+      tool,
+      args,
+      policy,
+      message:
+        `⚠️ Tool high-risk ditahan menunggu approval.\n\n` +
+        `Tool: \`${tool}\`\n` +
+        `Risk: ${policy.label}\n` +
+        `ID: \`${request.requestId}\``,
+    };
+  }
+
+  // Low / medium risk → execute immediately
+  try {
+    const ctx = {
+      userId,
+      config: meta.config || {},
+      source: meta.source || 'agent',
+    };
+    const output = await runSkillByName(tool, toolCallString, ctx);
+    return {
+      status: 'success',
+      output: output || '(No output returned)',
+      tool,
+    };
+  } catch (err) {
+    return {
+      status: 'error',
+      error: err.message,
+      tool,
+    };
+  }
+}
+
+/**
+ * Execute an already-approved tool request (after user clicks Allow).
+ */
+async function executeApprovedTool(request, meta = {}) {
+  const tool = request.tool;
+  const args = request.args || {};
+  const toolCallString =
+    (request.continuation && request.continuation.toolCallString) ||
+    convertActionToToolCallString({ tool, args });
 
   const perm = checkPermission(toolCallString);
   if (!perm.allowed) {
@@ -127,41 +210,26 @@ async function executeAction(parsed, meta = {}) {
     };
   }
 
-  const approvalReq = createApproval({
-    tool: toolCallString,
-    source: meta.source || 'webui',
-    metadata: {
-      clientIp: meta.clientIp,
-      sessionUser: meta.user,
-      channel: meta.source,
-      chatId: meta.chatId,
-    },
-  });
-
-  if (approvalReq.status === 'PENDING') {
-    return {
-      status: 'approval_required',
-      approval: approvalReq,
-      message:
-        `⚠️ Eksekusi tool high-risk ditahan.\n\n` +
-        `**ID Approval:** \`${approvalReq.id}\`\n` +
-        `**Tool:** \`${approvalReq.tool}\`\n` +
-        `**Risk:** ${approvalReq.policy.label}\n\n` +
-        `Gunakan command berikut untuk melanjutkan:\n` +
-        `\`approve ${approvalReq.id}\` atau \`reject ${approvalReq.id}\``,
-    };
-  }
-
   try {
-    const output = await runSkillByName(tool, toolCallString);
+    const ctx = {
+      userId: request.userId,
+      config: meta.config || {},
+      source: meta.source || 'approval',
+    };
+    const output = await runSkillByName(tool, toolCallString, ctx);
     return {
-      status: 'success',
+      status: 'executed',
       output: output || '(No output returned)',
+      tool,
+      args,
+      request,
     };
   } catch (err) {
     return {
       status: 'error',
+      message: err.message,
       error: err.message,
+      tool,
     };
   }
 }
@@ -171,4 +239,5 @@ module.exports = {
   validateAgentAction,
   convertActionToToolCallString,
   executeAction,
+  executeApprovedTool,
 };

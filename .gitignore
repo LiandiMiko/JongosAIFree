@@ -14,3 +14,18 @@ data/imports/inbox/*
 data/imports/processed/*
 !data/imports/inbox/.gitkeep
 !data/imports/processed/.gitkeep
+
+# Runtime data
+data/
+config.json
+.env
+
+# Local vault symlink / content
+memory/second-brain
+memory/second-brain/**
+!memory/README.md
+
+# OS / editor
+.DS_Store
+*.log
+node_modules/

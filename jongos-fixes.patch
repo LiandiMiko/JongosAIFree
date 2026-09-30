@@ -1,0 +1,2226 @@
+diff --git a/.gitignore b/.gitignore
+index ecf2f0a..4dd0b75 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,3 +14,18 @@ data/imports/inbox/*
+ data/imports/processed/*
+ !data/imports/inbox/.gitkeep
+ !data/imports/processed/.gitkeep
++
++# Runtime data
++data/
++config.json
++.env
++
++# Local vault symlink / content
++memory/second-brain
++memory/second-brain/**
++!memory/README.md
++
++# OS / editor
++.DS_Store
++*.log
++node_modules/
+diff --git a/README.md b/README.md
+index 2a7e5c2..98e74b3 100644
+--- a/README.md
++++ b/README.md
+@@ -10,17 +10,17 @@ Jalan di **Termux (Android)**, **Linux**, **macOS**, **Windows**.
+ 
+ - 💬 **Telegram bot** + WebUI chat
+ - 🧠 **Obsidian RAG + Vault Manager**:
+-  - **RAG Automatic Retriever**: Setiap pesan user otomatis mendapat konteks relevan dari vault Obsidian.
+-  - **Full Vault CRUD**: `read`, `search`, `create`, `append`, `update`, `move`, `delete`, `normalize`.
+-  - **Vault Organizer**: Mode `audit`, `plan`, dan `apply` untuk merapikan vault yang berantakan secara batch.
+-  - **Auto Re-index**: Setiap perubahan note otomatis memperbarui index RAG.
+-  - **Sensitive Note Protection**: Note dengan `sensitive: true` dilewati dari RAG dan perubahan otomatis.
+-- ⚡ **Multi-provider AI** — Groq, Gemini (multi-key rotation), OpenRouter, Mistral, SambaNova, LLM7, llama.cpp.
+-- 🔐 **Privacy layer** — Auto-redact API key dan kredensial sensitif sebelum dikirim ke LLM.
+-- 📊 **Dashboard** — Status provider, stats vault, list skill.
+-- 🛠️ **Built-in skills** — Shell execution, memory, device info, fetch, dll.
+-- 🚦 **Rate-limit aware routing** — Auto-skip provider yang rate-limited atau unhealthy.
+-- ✅ **Approval system** — Tool high-risk (`delete`, `move`, `organize`, `shell`) membutuhkan konfirmasi user.
++  - **RAG Automatic Retriever** — setiap pesan agent mendapat konteks relevan dari vault
++  - **Full Vault CRUD** — `read`, `search`, `create`, `append`, `update`, `move`, `delete`, `normalize`
++  - **Vault Organizer** — mode `audit`, `plan`, `apply` untuk merapikan vault batch
++  - **Auto Re-index** — perubahan note otomatis update index RAG
++  - **Sensitive Note Protection** — note `sensitive: true` dilewati dari RAG
++- ⚡ **Multi-provider AI** — Groq, Gemini (multi-key), OpenRouter, Mistral, SambaNova, LLM7, llama.cpp
++- 🔐 **Privacy layer** — auto-redact API key & kredensial sebelum ke LLM
++- 📊 **Dashboard** — status provider, stats vault, list skill
++- 🛠️ **Built-in skills** — shell, memory, device info, fetch, dll
++- 🚦 **Rate-limit aware routing** — auto-skip provider yang limit / unhealthy
++- ✅ **Approval system** — tool high-risk butuh konfirmasi user (Telegram inline button)
+ 
+ ---
+ 
+@@ -34,82 +34,139 @@ cd JongosAIFree
+ npm install
+ ```
+ 
++**Termux (Android)** — install [Termux](https://f-droid.org/en/packages/com.termux/) dari F-Droid dulu:
++
++```bash
++pkg update && pkg install -y nodejs git
++git clone https://github.com/LiandiMiko/JongosAIFree.git ~/jongos
++cd ~/jongos
++npm install
++```
++
+ ### 2. Setup
+ 
+ ```bash
+ npm run setup
+ ```
+ 
+-Wizard akan menuntun konfigurasi:
+-- Nama agent (default: Paijo)
++Wizard akan menuntun:
++- Nama agent (default: **Paijo**)
+ - Port WebUI (default: 3000)
+-- API Keys (Groq, Gemini, OpenRouter, Mistral, dll.)
+-- Obsidian Vault path (`OBSIDIAN_VAULT`)
+-- Telegram Bot token (opsional)
++- API keys provider (isi yang kamu punya)
++- Path Obsidian vault (opsional)
++- Telegram bot token (opsional)
+ 
+-### 3. Re-index Vault (Pertama kali)
++### 3. Re-index Vault (jika pakai Obsidian)
+ 
+ ```bash
+-node scripts/reindex-vault.js
++npm run reindex
+ ```
+ 
+-### 4. Menjalankan Agent
++### 4. Jalankan
+ 
+ ```bash
+ npm start
+ ```
+ 
+-Buka di browser:
+ - **Chat UI** → http://localhost:3000
+ - **Dashboard** → http://localhost:3000/dashboard
+ 
+ ---
+ 
+-## 📂 Struktur Projek
++## 🔑 API Keys (gratis, tanpa kartu kredit)
++
++| Provider | Gratis | Kecepatan | Daftar |
++|---|---|---|---|
++| **Groq** ⭐ | ~14K req/hari | ~800ms | [console.groq.com](https://console.groq.com) |
++| **Gemini** | 20 req/hari/key | 3–5s | [ai.google.dev](https://ai.google.dev) |
++| **OpenRouter** | 50 req/hari | bervariasi | [openrouter.ai/keys](https://openrouter.ai/keys) |
++| **Mistral** | terbatas | cepat | [console.mistral.ai](https://console.mistral.ai) |
++| **SambaNova** | terbatas | ~3s | [cloud.sambanova.ai](https://cloud.sambanova.ai) |
++| **LLM7.io** | 1M token/hari | ~2s | [llm7.io](https://llm7.io) |
++| **llama.cpp** | unlimited (lokal) | tergantung hardware | self-host |
+ 
+-```text
++Minimal **1 provider**. **Groq** paling direkomendasikan.
++
++---
++
++## 📂 Struktur proyek
++
++```
+ JongosAIFree/
+ ├── src/
+-│   ├── vault/           # Shared Obsidian vault module (paths, frontmatter, note, links)
+-│   ├── providers/       # Modular LLM adapters (Groq, Gemini, OpenRouter, Mistral, dll.)
+-│   ├── agent/           # Agent loop, decision parser, tool executor
+-│   ├── rag/             # RAG chunker, embedder, vector store, retriever, indexer
+-│   ├── memory/          # Conversation history
+-│   ├── privacy/         # Secret scanner & redaction
+-│   └── gateway/         # Telegram & WebUI gateways
+-├── skills/              # Built-in skills (obsidian-*, shell, fetch, dll.)
+-├── data/
+-│   └── rag/             # Auto-generated vector index
++│   ├── agent/           # Multi-step agent loop, decision parser, tool executor
++│   ├── providers/       # LLM adapters (Groq, Gemini, OpenRouter, …)
++│   ├── rag/             # Chunker, embedder, vector store, retriever, indexer
++│   ├── vault/           # Obsidian paths, frontmatter, note, links
++│   ├── agent-loop.js    # Facade untuk Telegram & WebUI
++│   ├── telegram.js      # Telegram gateway
++│   ├── webui.js         # Express WebUI + dashboard API
++│   ├── approval.js      # High-risk tool approval
++│   ├── tool-policy.js   # Risk levels per skill
++│   ├── skills.js        # Skill loader
++│   └── …
++├── skills/              # Plugin skills (obsidian-*, shell, fetch, …)
+ ├── scripts/
+-│   ├── setup.js
+-│   └── reindex-vault.js # Manual vault re-indexing script
++│   ├── reindex-vault.js
++│   └── import-ai-chats.js
++├── public/              # index.html + dashboard.html
++├── setup.js
+ ├── index.js
+-├── package.json
+-└── README.md
++└── package.json
+ ```
+ 
+ ---
+ 
+-## 🔑 Matriks Skill Vault
++## 🔑 Matriks skill vault
+ 
+-| Skill | Fungsi | Risk Level | Need Approval |
++| Skill | Fungsi | Risk | Approval |
+ |---|---|---|---|
+-| `obsidian-read` | Baca isi note | Low | Tidak |
+-| `obsidian-search` | Pencarian keyword + RAG vector | Low | Tidak |
+-| `obsidian-tree` | Struktur folder vault | Low | Tidak |
+-| `obsidian-tags` | Daftar & filter tag | Low | Tidak |
+-| `obsidian-backlinks` | Backlink & outgoing links | Low | Tidak |
++| `obsidian-read` | Baca note | Low | Tidak |
++| `obsidian-search` | Cari keyword + RAG | Low | Tidak |
++| `obsidian-tree` | Struktur folder | Low | Tidak |
++| `obsidian-tags` | List/filter tag | Low | Tidak |
++| `obsidian-backlinks` | Backlink & outgoing | Low | Tidak |
+ | `obsidian-context` | Bundel konteks topik | Low | Tidak |
+-| `obsidian-normalize` | Rapikan format frontmatter & H1 | Medium | Tidak |
++| `obsidian-normalize` | Rapikan frontmatter & H1 | Medium | Tidak |
+ | `obsidian-create` | Buat note baru | High | Ya |
+-| `obsidian-append` | Tambah isi di akhir note | High | Ya |
++| `obsidian-append` | Tambah isi note | High | Ya |
+ | `obsidian-update` | Timpa isi note | High | Ya |
+-| `obsidian-move` | Pindahkan / rename note | High | Ya |
++| `obsidian-move` | Pindah / rename | High | Ya |
+ | `obsidian-delete` | Hapus note | High | Ya |
+-| `obsidian-organize` | Audit, plan, & batch organize vault | High | Ya (mode apply) |
++| `obsidian-organize` | Audit / plan / apply | High | Ya (mode apply) |
++
++Skill lain: `shell` (High), `writefile` (High), `readfile` (Medium), `fetch` (Medium), `device-info` (Medium), `ping` / `remember` (Low).
++
++---
++
++## 📱 Telegram
++
++1. Chat [@BotFather](https://t.me/BotFather) → `/newbot`
++2. Paste token di `npm run setup`
++3. Commands: `/start`, `/status`, `/help`, `/reset`
++
++Obrolan natural juga jalan, misal: *"Jo, cari note tentang linux"*, *"Jo, list folder vault"*.
++
++Tool high-risk akan memunculkan tombol **Allow / Deny**.
++
++---
++
++## 🐛 Troubleshooting
++
++| Masalah | Solusi |
++|---|---|
++| No API keys found | Isi minimal 1 key di `.env` atau jalankan `npm run setup` |
++| Bot Telegram tidak respon | Cek koneksi ke `api.telegram.org` (beberapa WiFi blokir Telegram) |
++| Obsidian skills disabled | Set `OBSIDIAN_VAULT` di `.env` ke path yang valid |
++| Port 3000 dipakai | Ubah `webPort` di `config.json` |
++| Provider error 402/429 | Provider limit — sistem auto-fallback ke provider lain |
+ 
+ ---
+ 
+ ## 📄 Lisensi
+ 
+-MIT License - **JongosAIFree** by [LiandiMiko](https://github.com/LiandiMiko)
++MIT License — **JongosAIFree** by [LiandiMiko](https://github.com/LiandiMiko)
++
++---
++
++🦞 **Selamat ngoding!**
+diff --git a/cli.js b/cli.js
+index dad2553..daca231 100644
+--- a/cli.js
++++ b/cli.js
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env node
+ 
+ /**
+- * Clawd Agent CLI — Interactive terminal interface
++ * JongosAIFree CLI — Interactive terminal interface
+  * Usage: node cli.js [command]
+  *
+  * Commands:
+@@ -68,7 +68,7 @@ async function onboard() {
+   box([
+     `${c.yellow}Security notice — please read.${c.reset}`,
+     '',
+-    'Clawd Agent connects to OpenRouter to process messages.',
++    'JongosAIFree connects to OpenRouter to process messages.',
+     'Your API key is stored locally in config.json.',
+     'Device access skills can read sensors, location, camera.',
+     '',
+@@ -99,7 +99,7 @@ async function onboard() {
+   if (existing) {
+     section('Existing config detected');
+     box([
+-      `${c.cyan}agent:${c.reset}    ${existing.agentName || 'Clawd'}`,
++      `${c.cyan}agent:${c.reset}    ${existing.agentName || 'Paijo'}`,
+       `${c.cyan}model:${c.reset}    ${existing.model || '(not set)'}`,
+       `${c.cyan}key:${c.reset}      ${maskKey(existing.openrouterKey)}`,
+       `${c.cyan}telegram:${c.reset} ${existing.telegramToken ? 'configured' : 'not set'}`,
+@@ -137,7 +137,7 @@ async function onboard() {
+       type: 'input',
+       name: 'agentName',
+       message: 'Agent name',
+-      initial: config.agentName || 'Clawd',
++      initial: config.agentName || 'Paijo',
+     });
+     config.agentName = agentName;
+     step('Agent name', agentName);
+@@ -152,7 +152,7 @@ async function onboard() {
+       { name: 'mistralai/mistral-small-3.1-24b-instruct:free', message: `${c.green}●${c.reset} Mistral Small 3.1 ${gray('(free)')}` },
+       { name: 'qwen/qwen3-coder:free', message: `${c.green}●${c.reset} Qwen3 Coder 480B ${gray('(free, code)')}` },
+       { name: 'nvidia/nemotron-3-nano-30b-a3b:free', message: `${c.green}●${c.reset} NVIDIA Nemotron Nano ${gray('(free)')}` },
+-      { name: 'openai/gpt-oss-120b:free', message: `${c.green}●${c.reset} OpenAI GPT-OSS 120B ${gray('(free)')}` },
++      { name: 'llama-3.3-70b-versatile', message: `${c.green}●${c.reset} Llama 3.3 70B (Groq) ${gray('(free)')}` },
+       { name: 'minimax/minimax-m2.5', message: `${c.yellow}●${c.reset} MiniMax M2.5 ${gray('(paid)')}` },
+       { name: 'anthropic/claude-haiku-4-5', message: `${c.yellow}●${c.reset} Claude Haiku 4.5 ${gray('(paid, quality)')}` },
+       { name: 'openrouter/auto', message: `${c.cyan}●${c.reset} Auto ${gray('(OpenRouter picks best)')}` },
+@@ -314,7 +314,7 @@ async function startAgent() {
+ 
+   nl();
+   divider();
+-  console.log(`  ${LOBSTER} ${bold(red('Clawd Agent is live.'))} ${LOBSTER}`);
++  console.log(`  ${LOBSTER} ${bold(red('JongosAIFree is live.'))} ${LOBSTER}`);
+   console.log(`  ${gray('Press Ctrl+C to stop.')}`);
+   divider();
+   nl();
+@@ -334,7 +334,7 @@ async function configCmd() {
+ 
+   section('Current Configuration');
+   box([
+-    `${c.cyan}agent:${c.reset}     ${config.agentName || 'Clawd'}`,
++    `${c.cyan}agent:${c.reset}     ${config.agentName || 'Paijo'}`,
+     `${c.cyan}model:${c.reset}     ${config.model || '(not set)'}`,
+     `${c.cyan}key:${c.reset}       ${maskKey(config.openrouterKey)}`,
+     `${c.cyan}telegram:${c.reset}  ${config.telegramToken ? 'configured' : 'not set'}`,
+@@ -443,7 +443,7 @@ async function statusCmd() {
+     return;
+   }
+ 
+-  status('Agent', config.agentName || 'Clawd', 'green');
++  status('Agent', config.agentName || 'Paijo', 'green');
+   status('Model', config.model || '(not set)', 'cyan');
+   status('API Key', maskKey(config.openrouterKey), config.openrouterKey ? 'green' : 'red');
+   status('Telegram', config.telegramToken ? 'configured' : 'not configured', config.telegramToken ? 'green' : 'gray');
+@@ -648,7 +648,7 @@ async function interactiveMenu() {
+ 
+   if (config) {
+     box([
+-      `${c.cyan}Agent:${c.reset}  ${config.agentName || 'Clawd'}`,
++      `${c.cyan}Agent:${c.reset}  ${config.agentName || 'Paijo'}`,
+       `${c.cyan}Model:${c.reset}  ${config.model || '(not set)'}`,
+       `${c.cyan}Key:${c.reset}    ${maskKey(config.openrouterKey)}`,
+     ]);
+diff --git a/config.example.json b/config.example.json
+index 9384c98..6ee4d22 100644
+--- a/config.example.json
++++ b/config.example.json
+@@ -1,7 +1,8 @@
+ {
+   "agentName": "Paijo",
+   "provider": "groq",
+-  "model": "openai/gpt-oss-120b",
++  "model": "llama-3.3-70b-versatile",
+   "telegramToken": "",
+-  "webPort": 3000
++  "webPort": 3000,
++  "maxSteps": 5
+ }
+diff --git a/index.js b/index.js
+index 47311ae..b397f67 100644
+--- a/index.js
++++ b/index.js
+@@ -1,9 +1,14 @@
+-// Android Bionic patch — MUST be first line before any other require
++// Android Bionic patch — MUST be first before any other require
+ const os = require('os');
+ const _orig = os.networkInterfaces.bind(os);
+-os.networkInterfaces = () => { try { return _orig(); } catch { return {}; } };
++os.networkInterfaces = () => {
++  try {
++    return _orig();
++  } catch {
++    return {};
++  }
++};
+ 
+-// Now safe to require everything else
+ require('dotenv').config();
+ const fs = require('fs');
+ const path = require('path');
+@@ -13,9 +18,8 @@ const { startWebUI } = require('./src/webui');
+ 
+ const CONFIG_PATH = path.join(__dirname, 'config.json');
+ 
+-// Check config exists
+ if (!fs.existsSync(CONFIG_PATH)) {
+-  console.error('No config.json found. Run "node setup.js" first.');
++  console.error('No config.json found. Run "npm run setup" first.');
+   process.exit(1);
+ }
+ 
+@@ -27,18 +31,21 @@ try {
+   process.exit(1);
+ }
+ 
+-// Validate required fields
+-const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
+-const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
+-const hasMistralKey = process.env.MISTRAL_API_KEY;
++// Detect configured providers from env
++const hasGeminiKey =
++  process.env.GEMINI_API_KEY_1 ||
++  process.env.GEMINI_API_KEY_2 ||
++  process.env.GEMINI_API_KEY_3;
++const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY;
++const hasMistralKey = !!process.env.MISTRAL_API_KEY;
+ const hasLlamaCpp = !!process.env.LLAMACPP_URL;
+ const hasGroq = !!process.env.GROQ_API_KEY;
+ const hasSambaNova = !!process.env.SAMBANOVA_API_KEY;
+ const hasLLM7 = !!process.env.LLM7_API_KEY;
+ 
+-const configuredProvider = (config.provider || "gemini").toLowerCase();
++const configuredProvider = (config.provider || 'groq').toLowerCase();
+ const providerKeys = {
+-  gemini: hasGeminiKey,
++  gemini: !!hasGeminiKey,
+   openrouter: hasOpenRouterKey,
+   mistral: hasMistralKey,
+   llamacpp: hasLlamaCpp,
+@@ -47,24 +54,47 @@ const providerKeys = {
+   llm7: hasLLM7,
+ };
+ 
+-if (!providerKeys[configuredProvider]) {
+-  console.error(`Missing API key for provider "${configuredProvider}" in .env`);
++// Soft check: warn if preferred provider missing, but allow fallback if ANY provider exists
++const anyProvider = Object.values(providerKeys).some(Boolean);
++if (!anyProvider) {
++  console.error(
++    'No API keys found in .env. Run "npm run setup" and add at least one provider key.'
++  );
+   process.exit(1);
+ }
+ 
++if (!providerKeys[configuredProvider]) {
++  console.warn(
++    `[warn] Preferred provider "${configuredProvider}" has no key — will fallback to other available providers.`
++  );
++}
++
+ if (!config.model) {
+-  config.model = 'gemini-3.8-flash';
++  // Sensible defaults per provider
++  const defaults = {
++    groq: 'llama-3.3-70b-versatile',
++    gemini: 'gemini-2.0-flash',
++    openrouter: 'google/gemma-2-9b-it:free',
++    mistral: 'mistral-small-latest',
++    sambanova: 'Meta-Llama-3.3-70B-Instruct',
++    llm7: 'default',
++    llamacpp: 'local-model',
++  };
++  config.model = defaults[configuredProvider] || 'llama-3.3-70b-versatile';
++}
++
++if (!config.agentName) {
++  config.agentName = 'Paijo';
+ }
+ 
+-console.log(`\n  Clawd Agent v1.0.0`);
+-console.log(`  Agent: ${config.agentName || 'Clawd'}`);
+-console.log(`  Model: ${config.model}`);
++console.log('');
++console.log('  🦞 JongosAIFree v1.0.0');
++console.log(`  Agent    : ${config.agentName}`);
++console.log(`  Provider : ${configuredProvider}`);
++console.log(`  Model    : ${config.model}`);
+ console.log('');
+ 
+-// Load skill plugins
+ loadSkills();
+-
+-// Start gateways
+ startTelegram(config);
+ startWebUI(config);
+ 
+diff --git a/memory/README.md b/memory/README.md
+new file mode 100644
+index 0000000..c30c039
+--- /dev/null
++++ b/memory/README.md
+@@ -0,0 +1,23 @@
++# Memory / Second Brain
++
++Folder ini adalah fallback vault jika `OBSIDIAN_VAULT` tidak di-set di `.env`.
++
++Cara pakai:
++1. Set path vault di `.env`:
++   ```
++   OBSIDIAN_VAULT=/path/ke/vault-obsidian-kamu
++   ```
++2. Atau buat symlink manual:
++   ```bash
++   # Linux/macOS
++   ln -s /path/ke/vault ./memory/second-brain
++
++   # Termux
++   ln -s /storage/emulated/0/Documents/second-brain ./memory/second-brain
++   ```
++3. Jalankan reindex:
++   ```bash
++   npm run reindex
++   ```
++
++Jangan commit isi vault pribadi ke git.
+diff --git a/memory/second-brain b/memory/second-brain
+deleted file mode 120000
+index f6a12f7..0000000
+--- a/memory/second-brain
++++ /dev/null
+@@ -1 +0,0 @@
+-/storage/emulated/0/Documents/second-brain
+\ No newline at end of file
+diff --git a/memory/second-brain.old b/memory/second-brain.old
+deleted file mode 160000
+index f23becf..0000000
+--- a/memory/second-brain.old
++++ /dev/null
+@@ -1 +0,0 @@
+-Subproject commit f23becfb650180f138f94af253caf4a5b77600af
+diff --git a/package-lock.json b/package-lock.json
+index df0484a..ecba5c2 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,32 +1,33 @@
+ {
+-  "name": "clawd-agent",
++  "name": "jongos-ai-free",
+   "version": "1.0.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "clawd-agent",
++      "name": "jongos-ai-free",
+       "version": "1.0.0",
+       "license": "MIT",
+       "dependencies": {
+         "axios": "^1.20.0",
+-        "dotenv": "^16.4.1",
++        "dotenv": "^16.6.1",
+         "enquirer": "^2.4.1",
+         "express": "^4.22.3",
+-        "grammy": "^1.21.1",
++        "grammy": "^1.46.0",
+         "lowdb": "^7.0.1"
+       },
+       "bin": {
+-        "clawd": "cli.js"
++        "clawd": "cli.js",
++        "jongos": "cli.js"
+       },
+       "engines": {
+         "node": ">=18"
+       }
+     },
+     "node_modules/@grammyjs/types": {
+-      "version": "3.24.0",
+-      "resolved": "https://registry.npmjs.org/@grammyjs/types/-/types-3.24.0.tgz",
+-      "integrity": "sha512-qQIEs4lN5WqUdr4aT8MeU6UFpMbGYAvcvYSW1A4OO1PABGJQHz/KLON6qvpf+5RxaNDQBxiY2k2otIhg/AG7RQ==",
++      "version": "5.0.0",
++      "resolved": "http://35.245.43.102/npm/%40grammyjs%2Ftypes/-/types-5.0.0.tgz",
++      "integrity": "sha512-iq1Qrq1iPKkB8yAa0qSuIURMZOCuqTY5pWy5gHpCeL1oQ+GPadGhw/cDTVE8waJwuCzacUzuIjRv1sESvk7u7A==",
+       "license": "MIT"
+     },
+     "node_modules/abort-controller": {
+@@ -121,7 +122,7 @@
+     },
+     "node_modules/axios": {
+       "version": "1.20.0",
+-      "resolved": "https://registry.npmjs.org/axios/-/axios-1.20.0.tgz",
++      "resolved": "http://35.245.43.102/npm/axios/-/axios-1.20.0.tgz",
+       "integrity": "sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==",
+       "license": "MIT",
+       "dependencies": {
+@@ -280,7 +281,7 @@
+     },
+     "node_modules/dotenv": {
+       "version": "16.6.1",
+-      "resolved": "https://registry.npmjs.org/dotenv/-/dotenv-16.6.1.tgz",
++      "resolved": "http://35.245.43.102/npm/dotenv/-/dotenv-16.6.1.tgz",
+       "integrity": "sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==",
+       "license": "BSD-2-Clause",
+       "engines": {
+@@ -321,7 +322,7 @@
+     },
+     "node_modules/enquirer": {
+       "version": "2.4.1",
+-      "resolved": "https://registry.npmjs.org/enquirer/-/enquirer-2.4.1.tgz",
++      "resolved": "http://35.245.43.102/npm/enquirer/-/enquirer-2.4.1.tgz",
+       "integrity": "sha512-rRqJg/6gd538VHvR3PSrdRBb/1Vy2YfzHqzvbhGIQpDRKIa4FgV/54b5Q1xYSxOOwKvjXweS26E0Q+nAMwp2pQ==",
+       "license": "MIT",
+       "dependencies": {
+@@ -403,7 +404,7 @@
+     },
+     "node_modules/express": {
+       "version": "4.22.3",
+-      "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
++      "resolved": "http://35.245.43.102/npm/express/-/express-4.22.3.tgz",
+       "integrity": "sha512-Bdcs4+3qlpVlx2NRn6fgX2Ue2/gGRaPeawebgclM0ERSCqDpA+owF1fdPwjJUTAJWMTuAaxjDf+hzb0/4eKvvw==",
+       "license": "MIT",
+       "dependencies": {
+@@ -578,12 +579,12 @@
+       }
+     },
+     "node_modules/grammy": {
+-      "version": "1.40.0",
+-      "resolved": "https://registry.npmjs.org/grammy/-/grammy-1.40.0.tgz",
+-      "integrity": "sha512-ssuE7fc1AwqlUxHr931OCVW3fU+oFDjHZGgvIedPKXfTdjXvzP19xifvVGCnPtYVUig1Kz+gwxe4A9M5WdkT4Q==",
++      "version": "1.46.0",
++      "resolved": "http://35.245.43.102/npm/grammy/-/grammy-1.46.0.tgz",
++      "integrity": "sha512-/8Qw+iisrUdOMk+p2mjEHouMm/BBdBEN1DHh16wiTpRUZkxDG3PxexdjCvR+wvK3LWPdrEvnQbdrwpU954sPhg==",
+       "license": "MIT",
+       "dependencies": {
+-        "@grammyjs/types": "3.24.0",
++        "@grammyjs/types": "5.0.0",
+         "abort-controller": "^3.0.0",
+         "debug": "^4.4.3",
+         "node-fetch": "^2.7.0"
+@@ -739,7 +740,7 @@
+     },
+     "node_modules/lowdb": {
+       "version": "7.0.1",
+-      "resolved": "https://registry.npmjs.org/lowdb/-/lowdb-7.0.1.tgz",
++      "resolved": "http://35.245.43.102/npm/lowdb/-/lowdb-7.0.1.tgz",
+       "integrity": "sha512-neJAj8GwF0e8EpycYIDFqEPcx9Qz4GUho20jWFR7YiFeXzF1YMLdxB36PypcTSPMA+4+LvgyMacYhlr18Zlymw==",
+       "license": "MIT",
+       "dependencies": {
+diff --git a/package.json b/package.json
+index 3c9ea0f..de80719 100644
+--- a/package.json
++++ b/package.json
+@@ -1,16 +1,17 @@
+ {
+-  "name": "clawd-agent",
++  "name": "jongos-ai-free",
+   "version": "1.0.0",
+   "description": "JongosAIFree — personal AI agent (Termux/Desktop) with Telegram bot, WebUI dashboard, Obsidian memory, and multi-provider routing",
+   "main": "index.js",
+   "bin": {
++    "jongos": "./cli.js",
+     "clawd": "./cli.js"
+   },
+   "scripts": {
+     "start": "node index.js",
+     "setup": "node setup.js",
+     "dev": "node --watch index.js",
+-    "clawd": "node cli.js",
++    "reindex": "node scripts/reindex-vault.js",
+     "import": "node scripts/import-ai-chats.js"
+   },
+   "keywords": [
+@@ -23,16 +24,17 @@
+     "gemini",
+     "mistral",
+     "obsidian",
+-    "llm"
++    "llm",
++    "rag"
+   ],
+-  "author": "zx_joy_",
++  "author": "LiandiMiko",
+   "license": "MIT",
+   "dependencies": {
+     "axios": "^1.20.0",
+-    "dotenv": "^16.4.1",
++    "dotenv": "^16.6.1",
+     "enquirer": "^2.4.1",
+     "express": "^4.22.3",
+-    "grammy": "^1.21.1",
++    "grammy": "^1.46.0",
+     "lowdb": "^7.0.1"
+   },
+   "engines": {
+diff --git a/patch-debug-action.js b/patch-debug-action.js
+deleted file mode 100644
+index 1aa2845..0000000
+--- a/patch-debug-action.js
++++ /dev/null
+@@ -1,21 +0,0 @@
+-const fs = require('fs');
+-const p = 'src/agent-loop.js';
+-let s = fs.readFileSync(p, 'utf8');
+-
+-// Cari validasi action di parseAgentDecision
+-const anchor = `  if (!decision || typeof decision !== 'object') {`;
+-
+-const addition = `  // === DEBUG: log raw decision ===
+-  if (decision && typeof decision === 'object') {
+-    console.log('[agent] Parsed decision:', JSON.stringify(decision).slice(0, 300));
+-  }
+-  // === end debug ===
+-
+-  if (!decision || typeof decision !== 'object') {`;
+-
+-if (!s.includes(anchor)) throw new Error('anchor not found');
+-if (s.includes('[agent] Parsed decision')) throw new Error('already patched');
+-s = s.replace(anchor, addition);
+-
+-fs.writeFileSync(p, s);
+-console.log('DEBUG ACTION OK');
+diff --git a/patch-index-llamacpp.js b/patch-index-llamacpp.js
+deleted file mode 100644
+index fda8980..0000000
+--- a/patch-index-llamacpp.js
++++ /dev/null
+@@ -1,30 +0,0 @@
+-const fs = require('fs');
+-const p = 'index.js';
+-let s = fs.readFileSync(p, 'utf8');
+-
+-const oldBlock = `const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
+-const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
+-const hasMistralKey = process.env.MISTRAL_API_KEY;
+-
+-const configuredProvider = (config.provider || "gemini").toLowerCase();
+-const providerKeys = { gemini: hasGeminiKey, openrouter: hasOpenRouterKey, mistral: hasMistralKey };`;
+-
+-const newBlock = `const hasGeminiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3;
+-const hasOpenRouterKey = process.env.OPENROUTER_API_KEY;
+-const hasMistralKey = process.env.MISTRAL_API_KEY;
+-const hasLlamaCpp = !!process.env.LLAMACPP_URL;
+-
+-const configuredProvider = (config.provider || "gemini").toLowerCase();
+-const providerKeys = {
+-  gemini: hasGeminiKey,
+-  openrouter: hasOpenRouterKey,
+-  mistral: hasMistralKey,
+-  llamacpp: hasLlamaCpp,
+-};`;
+-
+-if (!s.includes(oldBlock)) throw new Error('anchor not found');
+-if (s.includes('hasLlamaCpp')) throw new Error('already patched');
+-s = s.replace(oldBlock, newBlock);
+-
+-fs.writeFileSync(p, s);
+-console.log('INDEX LLAMACPP PATCH OK');
+diff --git a/patch-llamacpp.js b/patch-llamacpp.js
+deleted file mode 100644
+index e6b2ef6..0000000
+--- a/patch-llamacpp.js
++++ /dev/null
+@@ -1,108 +0,0 @@
+-const fs = require('fs');
+-const p = 'src/llm.js';
+-let s = fs.readFileSync(p, 'utf8');
+-
+-// 1. URL constant
+-const urlAnchor = "const OPENROUTER_URL =";
+-if (!s.includes(urlAnchor)) throw new Error('url anchor not found');
+-if (s.includes('LLAMACPP_URL')) throw new Error('already patched');
+-s = s.replace(urlAnchor, `const LLAMACPP_URL =
+-  process.env.LLAMACPP_URL ||
+-  'http://127.0.0.1:8080/v1';
+-
+-const OPENROUTER_URL =`);
+-
+-// 2. Provider config — taruh PALING ATAS biar jadi prioritas fallback
+-const provAnchor = "const PROVIDERS = {";
+-const provAddition = `const PROVIDERS = {
+-  llamacpp: {
+-    name: 'Local (llama.cpp)',
+-    models: [
+-      'gemma-3-4b-it',
+-    ],
+-  },
+-`;
+-if (!s.includes(provAnchor)) throw new Error('providers anchor not found');
+-s = s.replace(provAnchor, provAddition);
+-
+-// 3. getApiKey
+-const keyAnchor = "    openrouter: process.env.OPENROUTER_API_KEY,";
+-s = s.replace(keyAnchor, `    llamacpp: process.env.LLAMACPP_API_KEY || 'local',
+-    openrouter: process.env.OPENROUTER_API_KEY,`);
+-
+-// 4. callLlamaCpp function
+-const fnAnchor = "async function callOpenRouter(messages, model, options = {}) {";
+-const fnCode = `async function callLlamaCpp(messages, model, options = {}) {
+-  const apiKey = getApiKey('llamacpp');
+-
+-  try {
+-    const response = await axios.post(
+-      \`\${LLAMACPP_URL}/chat/completions\`,
+-      {
+-        model,
+-        messages,
+-        max_tokens: 2048,
+-        temperature: 0.7,
+-        ...(options.json
+-          ? { response_format: { type: 'json_object' } }
+-          : {}),
+-      },
+-      {
+-        headers: {
+-          'Content-Type': 'application/json',
+-          ...(apiKey && apiKey !== 'local'
+-            ? { Authorization: \`Bearer \${apiKey}\` }
+-            : {}),
+-        },
+-        timeout: 120000,
+-      }
+-    );
+-
+-    const text =
+-      response.data?.choices?.[0]?.message?.content?.trim();
+-
+-    if (!text) {
+-      throw new Error('llama.cpp tidak mengembalikan response.');
+-    }
+-
+-    const usage = response.data?.usage || {};
+-
+-    recordUsage('llamacpp', model, {
+-      inputTokens: usage.prompt_tokens,
+-      outputTokens: usage.completion_tokens,
+-      totalTokens: usage.total_tokens,
+-    });
+-
+-    markSuccess('llamacpp', model, {
+-      lastError: null,
+-    });
+-
+-    return text;
+-  } catch (error) {
+-    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+-      throw new Error(\`llama.cpp tidak bisa dijangkau: \${error.message}\`);
+-    }
+-    throw error;
+-  }
+-}
+-
+-${fnAnchor}`;
+-if (!s.includes(fnAnchor)) throw new Error('callOpenRouter anchor not found');
+-s = s.replace(fnAnchor, fnCode);
+-
+-// 5. Routing di callLLM
+-const routeAnchor = `      if (provider === 'gemini') {
+-        return await callGemini(messages, model, options);
+-      }`;
+-const routeAddition = `      if (provider === 'llamacpp') {
+-        return await callLlamaCpp(messages, model, options);
+-      }
+-
+-      if (provider === 'gemini') {
+-        return await callGemini(messages, model, options);
+-      }`;
+-if (!s.includes(routeAnchor)) throw new Error('routing anchor not found');
+-s = s.replace(routeAnchor, routeAddition);
+-
+-fs.writeFileSync(p, s);
+-console.log('LLAMACPP PATCH OK');
+diff --git a/patch-telegram-document.js b/patch-telegram-document.js
+deleted file mode 100644
+index 8c105c4..0000000
+--- a/patch-telegram-document.js
++++ /dev/null
+@@ -1,103 +0,0 @@
+-const fs = require('fs');
+-const p = 'src/telegram.js';
+-let s = fs.readFileSync(p, 'utf8');
+-
+-const anchor = `  bot.on('message:text', async (ctx) => {`;
+-
+-const handler = `  // === Handler: file document (import chat) ===
+-  bot.on('message:document', async (ctx) => {
+-    const userId = \`tg-\${ctx.from.id}\`;
+-    const doc = ctx.message.document;
+-
+-    console.log(\`[telegram] DOC from \${userId}: \${doc.file_name} (\${doc.file_size} bytes)\`);
+-
+-    try {
+-      await ctx.replyWithChatAction('typing');
+-
+-      const allowedExt = ['.json', '.md', '.txt'];
+-      const ext = (doc.file_name || '').toLowerCase().match(/\\.[a-z0-9]+$/)?.[0] || '';
+-
+-      if (!allowedExt.includes(ext)) {
+-        await ctx.reply(\`❌ Format tidak didukung: \${ext}\\nHanya: .json, .md, .txt\`);
+-        return;
+-      }
+-
+-      if (doc.file_size > 20 * 1024 * 1024) {
+-        await ctx.reply('❌ File terlalu besar (max 20 MB).');
+-        return;
+-      }
+-
+-      const file = await ctx.api.getFile(doc.file_id);
+-      const token = config.telegramToken;
+-      const url = \`https://api.telegram.org/file/bot\${token}/\${file.file_path}\`;
+-
+-      const fs = require('fs');
+-      const path = require('path');
+-      const https = require('https');
+-
+-      const inbox = path.join(__dirname, '..', 'data', 'imports', 'inbox');
+-      fs.mkdirSync(inbox, { recursive: true });
+-
+-      const safeName = String(doc.file_name || 'import.json').replace(/[^a-zA-Z0-9._-]/g, '_');
+-      const destPath = path.join(inbox, \`\${Date.now()}-\${safeName}\`);
+-
+-      await new Promise((resolve, reject) => {
+-        const ws = fs.createWriteStream(destPath);
+-        https.get(url, (res) => {
+-          if (res.statusCode !== 200) {
+-            reject(new Error(\`download failed: HTTP \${res.statusCode}\`));
+-            return;
+-          }
+-          res.pipe(ws);
+-          ws.on('finish', () => ws.close(resolve));
+-          ws.on('error', reject);
+-        }).on('error', reject);
+-      });
+-
+-      console.log(\`[telegram] File saved: \${destPath}\`);
+-
+-      // Import via script
+-      const { execFile } = require('child_process');
+-      const util = require('util');
+-      const execFileAsync = util.promisify(execFile);
+-
+-      const scriptPath = path.join(__dirname, '..', 'scripts', 'import-ai-chats.js');
+-      const { stdout, stderr } = await execFileAsync('node', [scriptPath, '--file', destPath], {
+-        timeout: 120000,
+-        maxBuffer: 10 * 1024 * 1024,
+-      });
+-
+-      console.log('[telegram] Import output:\\n' + stdout);
+-      if (stderr) console.log('[telegram] Import stderr:', stderr);
+-
+-      // Parse hasil dari stdout
+-      const lines = stdout.split('\\n').filter(Boolean);
+-      const summary = lines.find((l) => l.includes('format=')) || '';
+-
+-      await ctx.reply(
+-        [
+-          '✅ *Import selesai*',
+-          '',
+-          \`File: \\\`\${safeName}\\\`\`,
+-          summary ? \`\${summary.trim()}\` : '',
+-          '',
+-          'Cek di vault: \\\`07 Imported/AI Chats/\\\`',
+-        ].filter(Boolean).join('\\n'),
+-        { parse_mode: 'Markdown' }
+-      );
+-
+-    } catch (err) {
+-      console.error('[telegram] Import error:', err.message);
+-      await ctx.reply(\`❌ Import gagal: \${err.message}\`);
+-    }
+-  });
+-  // === end document handler ===
+-
+-  bot.on('message:text', async (ctx) => {`;
+-
+-if (!s.includes(anchor)) throw new Error('message:text anchor not found');
+-if (s.includes('message:document')) throw new Error('already patched');
+-s = s.replace(anchor, handler);
+-
+-fs.writeFileSync(p, s);
+-console.log('TELEGRAM DOCUMENT HANDLER OK');
+diff --git a/patch-webui-dashboard.js b/patch-webui-dashboard.js
+deleted file mode 100644
+index a5c23ae..0000000
+--- a/patch-webui-dashboard.js
++++ /dev/null
+@@ -1,102 +0,0 @@
+-const fs = require('fs');
+-const p = 'src/webui.js';
+-let s = fs.readFileSync(p, 'utf8');
+-
+-// Tambah endpoint sebelum app.listen
+-const anchor = `  app.listen(port, '0.0.0.0', () => {`;
+-
+-const endpoints = `  // === Dashboard endpoints ===
+-
+-  app.get('/api/status', (req, res) => {
+-    try {
+-      const { getAllProviderStatus } = require('./llm-status');
+-      res.json({ providers: getAllProviderStatus() });
+-    } catch (err) {
+-      res.status(500).json({ error: err.message });
+-    }
+-  });
+-
+-  app.get('/api/skills', (req, res) => {
+-    try {
+-      const { loadSkills, getSkillManifest } = require('./skills');
+-      loadSkills();
+-      const manifest = getSkillManifest();
+-      const { getToolPolicy } = require('./tool-policy');
+-      const enriched = manifest.map((s) => {
+-        const policy = getToolPolicy(s.name);
+-        return {
+-          name: s.name,
+-          description: s.description,
+-          risk: policy.risk,
+-          label: policy.label,
+-        };
+-      });
+-      res.json({ skills: enriched, total: enriched.length });
+-    } catch (err) {
+-      res.status(500).json({ error: err.message });
+-    }
+-  });
+-
+-  app.get('/api/tree', async (req, res) => {
+-    try {
+-      const query = req.query.path || '';
+-      const skill = require('../skills/obsidian-tree');
+-      const input = query ? \`obsidian-tree: \${query}\` : 'obsidian-tree';
+-      const result = await skill.run(input);
+-      res.json({ tree: result, path: query || 'root' });
+-    } catch (err) {
+-      res.status(500).json({ error: err.message });
+-    }
+-  });
+-
+-  app.get('/api/stats', async (req, res) => {
+-    try {
+-      const skill = require('../skills/obsidian-tags');
+-      const tagsResult = await skill.run('obsidian-tags');
+-
+-      // Hitung manual
+-      const fs = require('fs');
+-      const path = require('path');
+-      const VAULT = process.env.OBSIDIAN_VAULT ||
+-        path.join(__dirname, '..', 'memory', 'second-brain');
+-
+-      let mdCount = 0;
+-      let folderCount = 0;
+-
+-      function walk(d) {
+-        let entries;
+-        try { entries = fs.readdirSync(d, { withFileTypes: true }); }
+-        catch { return; }
+-        for (const e of entries) {
+-          if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+-          if (e.isDirectory()) {
+-            folderCount++;
+-            walk(path.join(d, e.name));
+-          } else if (e.name.endsWith('.md')) {
+-            mdCount++;
+-          }
+-        }
+-      }
+-      walk(VAULT);
+-
+-      res.json({
+-        mdCount,
+-        folderCount,
+-        tags: tagsResult,
+-        vault: VAULT,
+-      });
+-    } catch (err) {
+-      res.status(500).json({ error: err.message });
+-    }
+-  });
+-
+-  // === End dashboard endpoints ===
+-
+-${anchor}`;
+-
+-if (!s.includes(anchor)) throw new Error('listen anchor not found');
+-if (s.includes("'/api/status'")) throw new Error('already patched');
+-s = s.replace(anchor, endpoints);
+-
+-fs.writeFileSync(p, s);
+-console.log('WEBUI DASHBOARD ENDPOINTS OK');
+diff --git a/setup.js b/setup.js
+index be4ffab..2bc062c 100644
+--- a/setup.js
++++ b/setup.js
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env node
+ /**
+- * Clawd Agent — Interactive Setup
++ * JongosAIFree — Interactive Setup
+  * Cross-platform: Windows / Linux / macOS / Termux
+  */
+ 
+@@ -31,7 +31,7 @@ const gray = (s) => c(s, '90');
+ function banner() {
+   console.log('');
+   console.log(cyan(bold('  ╔══════════════════════════════════╗')));
+-  console.log(cyan(bold('  ║     🦞 CLAWD AGENT SETUP 🦞     ║')));
++  console.log(cyan(bold('  ║     🦞 JONGOS AI FREE SETUP 🦞     ║')));
+   console.log(cyan(bold('  ╚══════════════════════════════════╝')));
+   console.log('');
+   console.log(gray(`  Platform: ${process.platform} ${os.arch()} • Node ${process.version}`));
+@@ -267,7 +267,7 @@ async function main() {
+     .filter((k) => providers[k] && providers[k].trim());
+ 
+   let defaultProvider = available[0] || 'gemini';
+-  let defaultModel = 'openai/gpt-oss-120b';
++  let defaultModel = 'llama-3.3-70b-versatile';
+ 
+   if (available.length > 0) {
+     section('Provider utama');
+@@ -289,8 +289,8 @@ async function main() {
+ 
+     // Model default per provider
+     const modelDefaults = {
+-      groq: 'openai/gpt-oss-120b',
+-      gemini: 'gemini-3.6-flash',
++      groq: 'llama-3.3-70b-versatile',
++      gemini: 'gemini-2.0-flash',
+       openrouter: 'qwen/qwen3.8-27b:free',
+       mistral: 'mistral-small-latest',
+       sambanova: 'Meta-Llama-3.3-70B-Instruct',
+@@ -312,7 +312,7 @@ async function main() {
+     warn('Tidak ada provider yang di-konfigurasi.');
+     warn('Kamu harus isi minimal 1 provider di .env sebelum start.');
+     defaultProvider = 'gemini';
+-    defaultModel = 'gemini-3.6-flash';
++    defaultModel = 'gemini-2.0-flash';
+   }
+ 
+   // === Simpan ===
+@@ -357,7 +357,7 @@ async function main() {
+   if (isTermux) {
+     console.log('  ' + gray('Termux tips:'));
+     console.log('    ' + cyan('termux-wake-lock') + '                   ' + gray('# Cegah Android matiin proses'));
+-    console.log('    ' + cyan('tmux new -s clawd "npm start"') + '      ' + gray('# Biar survive terminal close'));
++    console.log('    ' + cyan('tmux new -s jongos "npm start"') + '      ' + gray('# Biar survive terminal close'));
+     console.log('');
+   }
+ 
+diff --git a/src/agent-loop.js b/src/agent-loop.js
+index 97034d4..ef4c605 100644
+--- a/src/agent-loop.js
++++ b/src/agent-loop.js
+@@ -1,3 +1,178 @@
+-const agentModule = require('./agent');
++/**
++ * Agent facade — single entry point used by Telegram & WebUI.
++ * Bridges the modular agent (src/agent/) with the approval system.
++ */
++const { runAgentLoop } = require('./agent/loop');
++const { executeApprovedTool } = require('./agent/tool-executor');
++const {
++  approveRequest,
++  denyRequest,
++  consumeApproval,
++  getApproval,
++} = require('./approval');
++const { addMessage } = require('./memory');
+ 
+-module.exports = agentModule;
++/**
++ * Run the multi-step agent.
++ * @param {string} text - user message
++ * @param {object} config
++ * @param {object} meta - { userId, source, ... }
++ * @returns structured result for telegram/webui
++ */
++async function runAgent(text, config = {}, meta = {}) {
++  const userId = meta.userId || 'anonymous';
++
++  try {
++    const result = await runAgentLoop(text, config, {
++      ...meta,
++      userId,
++      source: meta.source || 'telegram',
++    });
++
++    // Persist conversation on final answer
++    if (result.status === 'answered') {
++      try {
++        await addMessage(userId, 'user', text);
++        await addMessage(userId, 'assistant', result.answer);
++      } catch (e) {
++        console.log('[agent-loop] memory save skipped:', e.message);
++      }
++    }
++
++    return result;
++  } catch (err) {
++    console.error('[agent-loop] runAgent error:', err.message);
++    return {
++      status: 'error',
++      message: `Terjadi kesalahan: ${err.message}`,
++    };
++  }
++}
++
++/**
++ * After user clicks Allow on Telegram:
++ * 1. Mark approval as approved
++ * 2. Consume it
++ * 3. Execute the tool
++ */
++async function executeApprovedRequest(requestId, userId, meta = {}) {
++  // Idempotent: if still pending, approve first; if already approved (by telegram pre-check), continue
++  const existing = getApproval(requestId);
++  if (!existing) {
++    return {
++      status: 'error',
++      message: 'Approval request tidak ditemukan atau sudah expired.',
++    };
++  }
++
++  if (existing.status === 'pending') {
++    const approval = approveRequest(requestId, userId);
++    if (!approval.success) {
++      return {
++        status: 'error',
++        message: approval.reason || 'Approval gagal.',
++      };
++    }
++  } else if (existing.status !== 'approved') {
++    return {
++      status: 'error',
++      message: `Request berstatus "${existing.status}", tidak bisa dieksekusi.`,
++    };
++  }
++
++  const consumed = consumeApproval(requestId, userId);
++  if (!consumed.success) {
++    return {
++      status: 'error',
++      message: consumed.reason || 'Gagal consume approval.',
++    };
++  }
++
++  const request = consumed.request;
++  const execResult = await executeApprovedTool(request, {
++    ...meta,
++    userId,
++    config: meta.config || {},
++    source: 'approval',
++  });
++
++  return execResult;
++}
++
++/**
++ * Continue the agent loop after a tool was approved & executed.
++ */
++async function continueAgentAfterApproval(execResult, config = {}, meta = {}) {
++  if (!execResult || execResult.status !== 'executed') {
++    return {
++      status: 'error',
++      message: execResult?.message || execResult?.error || 'Tool execution gagal.',
++    };
++  }
++
++  const request = execResult.request;
++  const continuation = (request && request.continuation) || {};
++  const userId = meta.userId || request.userId || 'anonymous';
++
++  // Re-enter the agent loop with the tool result injected
++  const result = await runAgentLoop(
++    continuation.userText || `Lanjutkan setelah tool ${execResult.tool}`,
++    config,
++    {
++      userId,
++      source: meta.source || 'approval',
++      history: continuation.history || [],
++      step: continuation.step || 0,
++      toolsUsed: continuation.toolsUsed || [execResult.tool],
++      toolResult: {
++        tool: execResult.tool,
++        output: execResult.output,
++      },
++    }
++  );
++
++  if (result.status === 'answered') {
++    try {
++      await addMessage(userId, 'assistant', result.answer);
++    } catch (e) {
++      console.log('[agent-loop] memory save skipped:', e.message);
++    }
++  }
++
++  return result;
++}
++
++/**
++ * Simple processMessage for WebUI / backward compat.
++ * Returns a plain string reply.
++ */
++async function processMessage(userId, text, config) {
++  const result = await runAgent(text, config, {
++    userId,
++    source: 'webui',
++  });
++
++  if (result.status === 'answered') {
++    return result.answer;
++  }
++  if (result.status === 'approval_required') {
++    return (
++      `🔐 Tool high-risk membutuhkan approval.\n\n` +
++      `Tool: ${result.tool}\n` +
++      `Risk: ${result.policy?.label || 'HIGH'}\n` +
++      `ID: ${result.requestId}\n\n` +
++      `Gunakan Telegram bot untuk approve, atau jalankan ulang dari chat yang mendukung approval.`
++    );
++  }
++  return result.message || 'Terjadi kesalahan.';
++}
++
++module.exports = {
++  runAgent,
++  executeApprovedRequest,
++  continueAgentAfterApproval,
++  processMessage,
++  // re-export deny for telegram
++  denyRequest,
++  getApproval,
++};
+diff --git a/src/agent.js b/src/agent.js
+index 88f01ee..9bc1ac7 100644
+--- a/src/agent.js
++++ b/src/agent.js
+@@ -1,284 +1,5 @@
+-const { callLLM, PROVIDERS, getModels } = require('./llm');
+-const { getHistory, addMessage, clearHistory } = require('./memory');
+-const { runSkill, listSkills } = require('./skills');
+-const { getAllProviderStatus } = require('./llm-status');
+-
+-function buildSystemPrompt(config) {
+-  const date = new Date().toLocaleDateString('id-ID', {
+-    weekday: 'long',
+-    year: 'numeric',
+-    month: 'long',
+-    day: 'numeric',
+-  });
+-
+-  return {
+-    role: 'system',
+-    content: [
+-      `Kamu adalah ${config.agentName || 'Clawd'}, asisten AI yang ramah dan membantu.`,
+-      `Provider yang sedang dipakai: ${config.provider || 'gemini'}.`,
+-      `Model yang sedang dipakai: ${config.model}.`,
+-      `Jawab dalam bahasa Indonesia kecuali diminta lain.`,
+-      `Kamu bisa akses perangkat (baterai, lokasi, kamera, dll) jika user minta.`,
+-      `Hari ini ${date}.`,
+-    ].join(' '),
+-  };
+-}
+-
+-function introText(config) {
+-  const provider =
+-    (config.provider || 'gemini').toLowerCase();
+-
+-  const providerInfo = PROVIDERS[provider];
+-
+-  return [
+-    `Halo! Saya **${config.agentName || 'Clawd'}**.`,
+-    '',
+-    `• Provider : \`${providerInfo?.name || provider}\``,
+-    `• Model    : \`${config.model}\``,
+-    '',
+-    'Ketik pesan untuk chat.',
+-    '',
+-    'Perintah:',
+-    '/help',
+-    '/provider',
+-    '/model',
+-    '/models',
+-    '/reset',
+-    '/skills',
+-    '/status',
+-    '/device',
+-  ].join('\n');
+-}
+-
+-async function processMessage(userId, text, config) {
+-  const trimmed = text.trim();
+-
+-  if (trimmed === '/start') {
+-    return introText(config);
+-  }
+-
+-  if (trimmed === '/help') {
+-    return [
+-      '/help     — Bantuan',
+-      '/provider — Lihat/ganti provider',
+-      '/model    — Lihat/ganti model',
+-      '/models   — Daftar model provider aktif',
+-      '/skills   — Daftar skill',
+-      '/status   — Usage & quota LLM',
+-      '/device   — Akses perangkat',
+-      '/reset    — Hapus memory/history',
+-      `Provider aktif: \`${config.provider || 'gemini'}\``,
+-      `Model aktif: \`${config.model}\``,
+-    ].join('\n');
+-  }
+-
+-  if (trimmed === '/status') {
+-    const all = getAllProviderStatus();
+-
+-    if (!all.length) {
+-      return '📊 Belum ada data usage. Coba kirim pesan dulu.';
+-    }
+-
+-    const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
+-    const lines = ['📊 *LLM Usage Status*', ''];
+-
+-    for (const e of all) {
+-      const u = e.usage || {};
+-      const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
+-      lines.push('**' + e.provider + ' / ' + e.model + keyLabel + '**');
+-      lines.push('• Status        : `' + e.status + '`');
+-      lines.push('• Requests      : ' + fmt(u.requests));
+-      lines.push('• Input tokens  : ' + fmt(u.inputTokens));
+-      lines.push('• Output tokens : ' + fmt(u.outputTokens));
+-      lines.push('• Total tokens  : ' + fmt(u.totalTokens));
+-      if (e.limit !== null && e.limit !== undefined) {
+-        lines.push('• Quota limit   : ' + fmt(e.limit));
+-        lines.push('• Quota remain  : ' + fmt(e.remaining));
+-        lines.push('• Quota used    : ' + fmt(e.used));
+-      }
+-      if (e.retryAfter) lines.push('• Retry after   : ' + e.retryAfter + 's');
+-      if (e.resetAt)    lines.push('• Reset at      : ' + e.resetAt);
+-      if (e.lastError)  lines.push('• Last error    : ' + e.lastError);
+-      lines.push('');
+-    }
+-
+-    return lines.join('\n');
+-  }
+-
+-  if (trimmed === '/provider') {
+-    const activeProvider =
+-      (config.provider || 'gemini').toLowerCase();
+-
+-    const lines = Object.entries(PROVIDERS).map(
+-      ([key, info], index) => {
+-        const mark =
+-          key === activeProvider ? ' ← aktif' : '';
+-
+-        return `${index + 1}. \`${key}\` — ${info.name}${mark}`;
+-      }
+-    );
+-
+-    return [
+-      '*Provider tersedia*',
+-      '',
+-      ...lines,
+-      '',
+-      'Ganti provider:',
+-      '`/provider gemini`',
+-      '`/provider openrouter`',
+-      '`/provider mistral`',
+-    ].join('\n');
+-  }
+-
+-  if (trimmed.startsWith('/provider ')) {
+-    const provider = trimmed
+-      .slice('/provider '.length)
+-      .trim()
+-      .toLowerCase();
+-
+-    if (!PROVIDERS[provider]) {
+-      return [
+-        `Provider \`${provider}\` tidak ditemukan.`,
+-        '',
+-        `Provider tersedia: ${Object.keys(PROVIDERS)
+-          .map((p) => `\`${p}\``)
+-          .join(', ')}`,
+-      ].join('\n');
+-    }
+-
+-    const models = getModels(provider);
+-
+-    config.provider = provider;
+-
+-    if (!models.includes(config.model)) {
+-      config.model = models[0];
+-    }
+-
+-    const fs = require('fs');
+-    const path = require('path');
+-    const configPath = path.join(
+-      __dirname,
+-      '..',
+-      'config.json'
+-    );
+-
+-    fs.writeFileSync(
+-      configPath,
+-      JSON.stringify(config, null, 2)
+-    );
+-
+-    return [
+-      `✅ Provider diganti ke **${PROVIDERS[provider].name}**.`,
+-      '',
+-      `Model aktif: \`${config.model}\``,
+-      '',
+-      'Gunakan `/models` untuk melihat model yang tersedia.',
+-    ].join('\n');
+-  }
+-
+-  if (trimmed === '/reset') {
+-    await clearHistory(userId);
+-    return 'Memory dihapus. Mulai dari awal.\n\n' + introText(config);
+-  }
+-
+-  if (trimmed === '/skills') {
+-    const list = listSkills();
+-    return `*Loaded Skills*\n\n${list}`;
+-  }
+-
+-  if (
+-    trimmed === '/models' ||
+-    trimmed === '/model'
+-  ) {
+-    const provider =
+-      (config.provider || 'gemini').toLowerCase();
+-
+-    const models = getModels(provider);
+-
+-    const lines = models.map((m, i) => {
+-      const mark =
+-        m === config.model ? ' ← aktif' : '';
+-
+-      return `${i + 1}. \`${m}\`${mark}`;
+-    });
+-
+-    return [
+-      `*Model — ${PROVIDERS[provider]?.name || provider}*`,
+-      '',
+-      ...lines,
+-      '',
+-      `Provider aktif: \`${provider}\``,
+-      '',
+-      'Ganti model:',
+-      '`/model <model-id>`',
+-    ].join('\n');
+-  }
+-
+-  if (trimmed.startsWith('/model ')) {
+-    const requestedModel = trimmed
+-      .slice('/model '.length)
+-      .trim();
+-
+-    const provider =
+-      (config.provider || 'gemini').toLowerCase();
+-
+-    const models = getModels(provider);
+-
+-    if (!models.includes(requestedModel)) {
+-      return [
+-        `Model \`${requestedModel}\` tidak tersedia untuk provider \`${provider}\`.`,
+-        '',
+-        'Gunakan `/models` untuk melihat model yang tersedia.',
+-      ].join('\n');
+-    }
+-
+-    config.model = requestedModel;
+-
+-    const fs = require('fs');
+-    const path = require('path');
+-    const configPath = path.join(
+-      __dirname,
+-      '..',
+-      'config.json'
+-    );
+-
+-    fs.writeFileSync(
+-      configPath,
+-      JSON.stringify(config, null, 2)
+-    );
+-
+-    return [
+-      `✅ Model diganti ke \`${requestedModel}\`.`,
+-      '',
+-      `Provider: \`${provider}\``,
+-    ].join('\n');
+-  }  
+-
+-
+-  // Skill dulu
+-  const skillResult = await runSkill(trimmed, { userId, config });
+-  if (skillResult) {
+-    await addMessage(userId, 'user', trimmed);
+-    await addMessage(userId, 'assistant', skillResult);
+-    return skillResult;
+-  }
+-
+-  // Bangun messages + history (tetap dibawa saat switch model)
+-  const history = await getHistory(userId);
+-  const systemPrompt = buildSystemPrompt(config);
+-  const messages = [systemPrompt, ...history, { role: 'user', content: trimmed }];
+-
+-  let reply;
+-  try {
+-    reply = await callLLM(messages, config);
+-  } catch (err) {
+-    console.error('[agent] LLM error:', err.message);
+-    return `Terjadi kesalahan: ${err.message}`;
+-  }
+-
+-  await addMessage(userId, 'user', trimmed);
+-  await addMessage(userId, 'assistant', reply);
+-  return reply;
+-}
+-
+-module.exports = { processMessage };
++/**
++ * Backward-compatible re-export.
++ * Prefer requiring ./agent-loop or ./agent/ directly.
++ */
++module.exports = require('./agent-loop');
+diff --git a/src/agent/index.js b/src/agent/index.js
+index 3a13a4a..76810bb 100644
+--- a/src/agent/index.js
++++ b/src/agent/index.js
+@@ -3,6 +3,7 @@ const {
+   validateAgentAction,
+   convertActionToToolCallString,
+   executeAction,
++  executeApprovedTool,
+ } = require('./tool-executor');
+ const {
+   buildToolManifest,
+@@ -15,6 +16,7 @@ module.exports = {
+   validateAgentAction,
+   convertActionToToolCallString,
+   executeAction,
++  executeApprovedTool,
+   buildToolManifest,
+   buildAgentSystemPrompt,
+   parseAgentResponse,
+diff --git a/src/agent/loop.js b/src/agent/loop.js
+index 33c3518..4ad309b 100644
+--- a/src/agent/loop.js
++++ b/src/agent/loop.js
+@@ -3,36 +3,61 @@ const { buildAgentSystemPrompt, parseAgentResponse } = require('./decision');
+ const { validateAgentAction, executeAction } = require('./tool-executor');
+ const { retrieveContext, indexVault } = require('../rag');
+ 
++const MUTATING_VAULT_TOOLS = [
++  'obsidian-create',
++  'obsidian-update',
++  'obsidian-append',
++  'obsidian-delete',
++  'obsidian-move',
++  'obsidian-normalize',
++  'obsidian-organize',
++];
++
++/**
++ * Multi-step agent loop.
++ * Returns either a final answer string OR a structured approval object:
++ *   { status: 'answered', answer: string }
++ *   { status: 'approval_required', requestId, tool, args, policy, message, continuation }
++ *   { status: 'error', message: string }
++ */
+ async function runAgentLoop(userMessage, config = {}, meta = {}) {
+   const maxSteps = config.maxSteps || 5;
+   const agentName = config.agentName || 'Paijo';
++  const userId = meta.userId || 'anonymous';
+ 
+   let ragContext = '';
+   let ragUsed = false;
+ 
+-  // Auto RAG context injection
+   try {
+     ragContext = retrieveContext(userMessage, 3);
+-    if (ragContext) {
+-      ragUsed = true;
+-    }
++    if (ragContext) ragUsed = true;
+   } catch (err) {
+     console.log('[rag] Skipped context retrieval:', err.message);
+   }
+ 
+   let systemPrompt = buildAgentSystemPrompt(agentName, ragUsed);
+-
+   if (ragContext) {
+     systemPrompt += `\n\n${ragContext}`;
+   }
+ 
++  // Support continuation after approval
++  const priorHistory = Array.isArray(meta.history) ? meta.history : [];
+   const messages = [
+     { role: 'system', content: systemPrompt },
++    ...priorHistory,
+     { role: 'user', content: userMessage },
+   ];
+ 
+-  let toolsUsed = [];
+-  let step = 0;
++  // If continuing after tool result
++  if (meta.toolResult) {
++    messages.push({
++      role: 'user',
++      content: `Hasil eksekusi tool ${meta.toolResult.tool}:\n${meta.toolResult.output}`,
++    });
++  }
++
++  let toolsUsed = Array.isArray(meta.toolsUsed) ? [...meta.toolsUsed] : [];
++  let step = Number.isInteger(meta.step) ? meta.step : 0;
+ 
+   while (step < maxSteps) {
+     step++;
+@@ -43,7 +68,10 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
+       rawResponse = await callLLM(messages, config, { json: true });
+     } catch (err) {
+       console.error(`[agent-loop] LLM Call error at step ${step}:`, err.message);
+-      return `Maaf, terjadi masalah pada koneksi AI: ${err.message}`;
++      return {
++        status: 'error',
++        message: `Maaf, terjadi masalah pada koneksi AI: ${err.message}`,
++      };
+     }
+ 
+     const parsed = parseAgentResponse(rawResponse);
+@@ -61,35 +89,44 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
+ 
+     if (parsed.action === 'final') {
+       console.log(`[agent-loop] Final answer reached at step ${step}`);
+-
+-      // Build source tag footer
+       const vaultToolsUsed = toolsUsed.filter((t) => t.startsWith('obsidian-'));
+       const footer = buildSourceFooter(ragUsed, vaultToolsUsed);
+-
+-      return `${parsed.reply}\n\n${footer}`;
++      return {
++        status: 'answered',
++        answer: `${parsed.reply}\n\n${footer}`,
++      };
+     }
+ 
+     if (parsed.action === 'tool') {
+       console.log(`[agent-loop] Executing tool: ${parsed.tool}`);
+       toolsUsed.push(parsed.tool);
+ 
+-      const result = await executeAction(parsed, meta);
++      const result = await executeAction(parsed, {
++        ...meta,
++        userId,
++        userText: userMessage,
++        history: messages.slice(1), // exclude system
++        step,
++        config,
++        source: meta.source || 'agent',
++      });
+ 
+       if (result.status === 'approval_required') {
+-        return result.message;
+-      }
+-
+-      // Auto-reindex RAG store after vault mutations
+-      if (
+-        result.status === 'success' &&
+-        parsed.tool.startsWith('obsidian-') &&
+-        ['obsidian-create', 'obsidian-update', 'obsidian-append', 'obsidian-delete', 'obsidian-move', 'obsidian-normalize'].includes(parsed.tool)
+-      ) {
+-        try {
+-          indexVault();
+-        } catch (rErr) {
+-          console.log('[rag] Auto reindex after mutation error:', rErr.message);
+-        }
++        return {
++          status: 'approval_required',
++          requestId: result.requestId,
++          tool: result.tool,
++          args: result.args,
++          policy: result.policy,
++          message: result.message,
++          continuation: {
++            userText: userMessage,
++            history: messages.slice(1),
++            step,
++            toolsUsed,
++            ragUsed,
++          },
++        };
+       }
+ 
+       if (result.status === 'blocked') {
+@@ -101,7 +138,25 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
+         continue;
+       }
+ 
+-      const outputText = result.status === 'success' ? result.output : `Error: ${result.error}`;
++      if (result.status === 'error') {
++        messages.push({ role: 'assistant', content: rawResponse });
++        messages.push({
++          role: 'user',
++          content: `Error tool ${parsed.tool}: ${result.error}`,
++        });
++        continue;
++      }
++
++      // success — auto reindex vault if needed
++      if (MUTATING_VAULT_TOOLS.includes(parsed.tool)) {
++        try {
++          indexVault();
++        } catch (rErr) {
++          console.log('[rag] Auto reindex after mutation error:', rErr.message);
++        }
++      }
++
++      const outputText = result.output || '(No output)';
+       messages.push({ role: 'assistant', content: rawResponse });
+       messages.push({
+         role: 'user',
+@@ -110,24 +165,21 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
+     }
+   }
+ 
+-  return 'Maaf, batas maksimum langkah perbaikan (max steps) tercapai sebelum mendapat jawaban akhir.';
++  return {
++    status: 'error',
++    message: 'Maaf, batas maksimum langkah (max steps) tercapai sebelum mendapat jawaban akhir.',
++  };
+ }
+ 
+-/**
+- * Build a source indicator footer for the user
+- */
+ function buildSourceFooter(ragContextInjected, vaultToolsUsed) {
+   const parts = [];
+ 
+   if (vaultToolsUsed.length > 0) {
+-    // Actively read/searched vault via tools
+     const toolNames = [...new Set(vaultToolsUsed)].join(', ');
+     parts.push(`📂 **Sumber: Vault Obsidian** _(tools: ${toolNames})_`);
+   } else if (ragContextInjected) {
+-    // Got context from RAG index (passive injection)
+     parts.push(`📂 **Sumber: Vault Obsidian (RAG)** _— konteks otomatis dari vault digunakan_`);
+   } else {
+-    // Pure LLM general knowledge
+     parts.push(`🌐 **Sumber: Pengetahuan Umum AI** _— tidak ada data dari vault yang digunakan_`);
+   }
+ 
+diff --git a/src/agent/tool-executor.js b/src/agent/tool-executor.js
+index 95931dd..839c385 100644
+--- a/src/agent/tool-executor.js
++++ b/src/agent/tool-executor.js
+@@ -1,7 +1,9 @@
+ const { loadSkills, getSkillManifest, runSkillByName } = require('../skills');
+ const { checkPermission } = require('../permission');
+ const { createApproval } = require('../approval');
++const { getToolPolicy } = require('../tool-policy');
+ 
++// Ensure skills are loaded once
+ loadSkills();
+ 
+ const TOOL_ARG_SCHEMAS = {
+@@ -10,7 +12,7 @@ const TOOL_ARG_SCHEMAS = {
+   writefile: { required: ['path', 'content'], types: { path: 'string', content: 'string' } },
+   'obsidian-read': { required: ['note'], types: { note: 'string' } },
+   'obsidian-search': { required: ['query'], types: { query: 'string' } },
+-  'obsidian-tags': { required: [], types: {} },
++  'obsidian-tags': { required: [], types: { tag: 'string' } },
+   'obsidian-tree': { required: [], types: { path: 'string' } },
+   'obsidian-backlinks': { required: ['note'], types: { note: 'string' } },
+   'obsidian-context': { required: ['query'], types: { query: 'string' } },
+@@ -75,7 +77,10 @@ function validateAgentAction(parsed) {
+         if (key in args && args[key] !== null && args[key] !== undefined) {
+           const actualType = typeof args[key];
+           if (actualType !== expectedType) {
+-            return { valid: false, reason: `Argumen "${key}" pada tool "${tool}" harus bertipe ${expectedType}, tapi dapat ${actualType}` };
++            return {
++              valid: false,
++              reason: `Argumen "${key}" pada tool "${tool}" harus bertipe ${expectedType}, tapi dapat ${actualType}`,
++            };
+           }
+         }
+       }
+@@ -111,14 +116,26 @@ function convertActionToToolCallString(parsed) {
+   if (tool === 'device-info') return `device-info`;
+   if (tool === 'remember') return `remember: ${args.fact || ''}`;
+   if (tool === 'clawd-scan') return `clawd-scan`;
++  if (tool === 'addskill') return `addskill: ${JSON.stringify(args)}`;
++  if (tool === 'delskills') return `delskills: ${args.name || ''}`;
+ 
+   return `${tool}: ${JSON.stringify(args)}`;
+ }
+ 
++/**
++ * Execute a parsed agent action (tool call).
++ * Returns structured result:
++ *   { status: 'success', output }
++ *   { status: 'blocked', error }
++ *   { status: 'error', error }
++ *   { status: 'approval_required', requestId, tool, args, policy, message }
++ */
+ async function executeAction(parsed, meta = {}) {
+-  const { tool } = parsed;
++  const { tool, args = {} } = parsed;
+   const toolCallString = convertActionToToolCallString(parsed);
++  const userId = meta.userId || meta.user || 'anonymous';
+ 
++  // Security permission check
+   const perm = checkPermission(toolCallString);
+   if (!perm.allowed) {
+     return {
+@@ -127,41 +144,92 @@ async function executeAction(parsed, meta = {}) {
+     };
+   }
+ 
+-  const approvalReq = createApproval({
+-    tool: toolCallString,
+-    source: meta.source || 'webui',
+-    metadata: {
+-      clientIp: meta.clientIp,
+-      sessionUser: meta.user,
+-      channel: meta.source,
+-      chatId: meta.chatId,
+-    },
+-  });
+-
+-  if (approvalReq.status === 'PENDING') {
++  // Risk / approval gate
++  const policy = getToolPolicy(tool);
++  if (policy.level >= 2) {
++    // HIGH risk → require user approval
++    const request = createApproval(userId, tool, args, policy, {
++      userText: meta.userText || '',
++      history: meta.history || [],
++      step: meta.step || 0,
++      toolCallString,
++      source: meta.source || 'agent',
++    });
++
+     return {
+       status: 'approval_required',
+-      approval: approvalReq,
++      requestId: request.requestId,
++      tool,
++      args,
++      policy,
+       message:
+-        `⚠️ Eksekusi tool high-risk ditahan.\n\n` +
+-        `**ID Approval:** \`${approvalReq.id}\`\n` +
+-        `**Tool:** \`${approvalReq.tool}\`\n` +
+-        `**Risk:** ${approvalReq.policy.label}\n\n` +
+-        `Gunakan command berikut untuk melanjutkan:\n` +
+-        `\`approve ${approvalReq.id}\` atau \`reject ${approvalReq.id}\``,
++        `⚠️ Tool high-risk ditahan menunggu approval.\n\n` +
++        `Tool: \`${tool}\`\n` +
++        `Risk: ${policy.label}\n` +
++        `ID: \`${request.requestId}\``,
+     };
+   }
+ 
++  // Low / medium risk → execute immediately
+   try {
+-    const output = await runSkillByName(tool, toolCallString);
++    const ctx = {
++      userId,
++      config: meta.config || {},
++      source: meta.source || 'agent',
++    };
++    const output = await runSkillByName(tool, toolCallString, ctx);
+     return {
+       status: 'success',
+       output: output || '(No output returned)',
++      tool,
++    };
++  } catch (err) {
++    return {
++      status: 'error',
++      error: err.message,
++      tool,
++    };
++  }
++}
++
++/**
++ * Execute an already-approved tool request (after user clicks Allow).
++ */
++async function executeApprovedTool(request, meta = {}) {
++  const tool = request.tool;
++  const args = request.args || {};
++  const toolCallString =
++    (request.continuation && request.continuation.toolCallString) ||
++    convertActionToToolCallString({ tool, args });
++
++  const perm = checkPermission(toolCallString);
++  if (!perm.allowed) {
++    return {
++      status: 'blocked',
++      error: `[SECURITY] ${perm.reason}`,
++    };
++  }
++
++  try {
++    const ctx = {
++      userId: request.userId,
++      config: meta.config || {},
++      source: meta.source || 'approval',
++    };
++    const output = await runSkillByName(tool, toolCallString, ctx);
++    return {
++      status: 'executed',
++      output: output || '(No output returned)',
++      tool,
++      args,
++      request,
+     };
+   } catch (err) {
+     return {
+       status: 'error',
++      message: err.message,
+       error: err.message,
++      tool,
+     };
+   }
+ }
+@@ -171,4 +239,5 @@ module.exports = {
+   validateAgentAction,
+   convertActionToToolCallString,
+   executeAction,
++  executeApprovedTool,
+ };
+diff --git a/src/approval.js b/src/approval.js
+index 5458b9d..ee7c702 100644
+--- a/src/approval.js
++++ b/src/approval.js
+@@ -52,6 +52,10 @@ function createApproval(userId, tool, args, policy, context = {}) {
+       userText: context.userText || '',
+       history: Array.isArray(context.history) ? context.history : [],
+       step: Number.isInteger(context.step) ? context.step : 0,
++      toolsUsed: Array.isArray(context.toolsUsed) ? context.toolsUsed : [],
++      toolCallString: context.toolCallString || '',
++      source: context.source || '',
++      ragUsed: !!context.ragUsed,
+     })
+   ),
+ 
+diff --git a/src/permission.js b/src/permission.js
+index c385944..fc3702b 100644
+--- a/src/permission.js
++++ b/src/permission.js
+@@ -1,36 +1,79 @@
+-const { getToolPolicy } = require('./tool-policy');
++const { getToolPolicy, getToolRisk } = require('./tool-policy');
+ 
+ /**
+- * Permission manager
++ * Extract canonical tool name from a tool-call string or raw name.
++ * Examples:
++ *   "obsidian-read: note.md" → "obsidian-read"
++ *   "shell: ls -la"          → "shell"
++ *   "ping 8.8.8.8"           → "ping"
++ *   "device-info"             → "device-info"
++ */
++function extractToolName(input) {
++  const s = String(input || '').trim();
++  if (!s) return '';
++
++  // "tool: rest" form
++  const colon = s.match(/^([a-z0-9-]+)\s*:/i);
++  if (colon) return colon[1].toLowerCase();
++
++  // "tool rest" form (ping, readfile, writefile)
++  const space = s.match(/^([a-z0-9-]+)(?:\s|$)/i);
++  if (space) return space[1].toLowerCase();
++
++  return s.toLowerCase();
++}
++
++/**
++ * Permission check.
+  *
+- * LOW    = auto allow
+- * MEDIUM = ask user
+- * HIGH   = ask user
++ * LOW / MEDIUM → auto-allow (medium is informational risk only)
++ * HIGH         → requiresApproval (but still "allowed" for the approval flow)
+  *
+- * Later this module will be connected to Telegram
+- * Allow / Deny buttons.
++ * Security denylist can block entirely (allowed: false).
+  */
+-
+-function checkPermission(toolName) {
++function checkPermission(toolInput) {
++  const toolName = extractToolName(toolInput);
+   const policy = getToolPolicy(toolName);
+ 
+-  if (policy.risk === 'low') {
++  // Hard denylist patterns (path traversal, destructive shell, etc.)
++  const raw = String(toolInput || '');
++  const blockedPatterns = [
++    /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/\b/i,  // rm -rf /
++    /\bmkfs\b/i,
++    /\bdd\s+if=/i,
++    /\b:\(\)\s*\{/,  // fork bomb
++    /\.\.\//,        // path traversal in sensitive context handled per-skill too
++  ];
++
++  for (const re of blockedPatterns) {
++    if (re.test(raw) && toolName === 'shell') {
++      return {
++        allowed: false,
++        requiresApproval: false,
++        policy,
++        reason: 'Command diblokir oleh security policy (perintah berbahaya).',
++      };
++    }
++  }
++
++  if (policy.risk === 'high') {
+     return {
+-      allowed: true,
+-      requiresApproval: false,
++      allowed: true, // allowed to proceed into approval flow
++      requiresApproval: true,
+       policy,
+-      reason: 'Low-risk tool can execute automatically.',
++      reason: 'High-risk tool requires user approval.',
+     };
+   }
+ 
+   return {
+-    allowed: false,
+-    requiresApproval: true,
++    allowed: true,
++    requiresApproval: false,
+     policy,
+-    reason: `${policy.label}-risk tool requires user approval.`,
++    reason: `${policy.label}-risk tool can execute automatically.`,
+   };
+ }
+ 
+ module.exports = {
+   checkPermission,
++  extractToolName,
+ };
+diff --git a/src/providers/index.js b/src/providers/index.js
+index 6cf36a3..48b7ad1 100644
+--- a/src/providers/index.js
++++ b/src/providers/index.js
+@@ -38,45 +38,41 @@ const PROVIDERS = {
+   groq: {
+     name: 'Groq',
+     models: [
+-      'openai/gpt-oss-120b',
+-      'qwen/qwen3.8-27b',
+-      'openai/gpt-oss-20b',
++      'llama-3.3-70b-versatile',
++      'llama-3.1-8b-instant',
++      'gemma2-9b-it',
++      'mixtral-8x7b-32768',
+     ],
+   },
+   sambanova: {
+     name: 'SambaNova',
+-    models: ['gemma-4-31B-it'],
++    models: ['Meta-Llama-3.3-70B-Instruct', 'Meta-Llama-3.1-8B-Instruct'],
+   },
+   llamacpp: {
+     name: 'Local (llama.cpp)',
+-    models: ['gemma-3-4b-it'],
++    models: ['local-model'],
+   },
+   gemini: {
+     name: 'Google Gemini',
+     models: [
+-      'gemini-3.6-flash',
+-      'gemini-3.5-flash',
+-      'gemini-3.1-flash-lite',
++      'gemini-2.0-flash',
++      'gemini-2.0-flash-lite',
++      'gemini-1.5-flash',
+     ],
+   },
+   openrouter: {
+     name: 'OpenRouter',
+     models: [
+-      'qwen/qwen3.8-27b:free',
+-      'z-ai/glm-5.2:free',
+-      'nvidia/nemotron-3-super-120b-a12b:free',
+-      'nvidia/nemotron-3-ultra-550b-a55b:free',
+-      'google/gemma-4-31b-it:free',
+-      'google/gemma-4-26b-a4b-it:free',
+-      'cohere/north-mini-code:free',
+-      'poolside/laguna-s-2.1:free',
+-      'poolside/laguna-xs-2.1:free',
+-      'thinkingmachines/inkling:free',
++      'google/gemma-2-9b-it:free',
++      'meta-llama/llama-3.2-3b-instruct:free',
++      'microsoft/phi-3-mini-128k-instruct:free',
++      'qwen/qwen-2.5-7b-instruct:free',
++      'mistralai/mistral-7b-instruct:free',
+     ],
+   },
+   mistral: {
+     name: 'Mistral AI',
+-    models: ['mistral-small-latest'],
++    models: ['mistral-small-latest', 'open-mistral-7b'],
+   },
+ };
+ 
+diff --git a/src/telegram.js b/src/telegram.js
+index 954bc7f..71253bd 100644
+--- a/src/telegram.js
++++ b/src/telegram.js
+@@ -239,7 +239,7 @@ function startTelegram(config) {
+         const isoDate = new Date().toISOString().slice(0, 10);
+ 
+         const systemPrompt = [
+-          'Kamu adalah Paijo, asisten AI yang ramah dan jujur.',
++          `Kamu adalah ${config.agentName || 'Paijo'}, asisten AI yang ramah dan jujur.`,
+           `Hari ini: ${today} (ISO: ${isoDate}).`,
+           '',
+           'ATURAN:',
+@@ -266,12 +266,11 @@ function startTelegram(config) {
+       const result = await runAgent(
+         text,
+         config,
+-        [],
+-        { userId }
++        { userId, source: 'telegram' }
+       );
+ 
+       if (result.status === 'answered') {
+-        await ctx.reply(result.content);
++        await ctx.reply(result.answer);
+         return;
+       }
+ 
+@@ -370,7 +369,7 @@ function startTelegram(config) {
+           await executeApprovedRequest(
+             requestId,
+             userId,
+-            { userId }
++            { userId, config, source: 'telegram' }
+           );
+ 
+ 	          if (result.status === 'executed') {
+@@ -378,7 +377,7 @@ function startTelegram(config) {
+             await continueAgentAfterApproval(
+               result,
+               config,
+-              { userId }
++              { userId, source: 'telegram' }
+             );
+ 
+           if (continuation.status === 'answered') {
+diff --git a/src/webui.js b/src/webui.js
+index 85421ae..256dfe6 100644
+--- a/src/webui.js
++++ b/src/webui.js
+@@ -1,6 +1,6 @@
+ const express = require('express');
+ const path = require('path');
+-const { processMessage } = require('./agent');
++const { processMessage } = require('./agent-loop');
+ const { addMessage } = require('./memory');
+ 
+ /**

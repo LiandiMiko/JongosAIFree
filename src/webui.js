@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { processMessage } = require('./agent');
+const { processMessage } = require('./agent-loop');
 const { addMessage } = require('./memory');
 
 /**
