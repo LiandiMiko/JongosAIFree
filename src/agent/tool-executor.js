@@ -20,6 +20,7 @@ const TOOL_ARG_SCHEMAS = {
   'obsidian-delete': { required: ['path'], types: { path: 'string' } },
   'obsidian-move': { required: ['from', 'to'], types: { from: 'string', to: 'string' } },
   'obsidian-normalize': { required: ['path'], types: { path: 'string' } },
+  'obsidian-organize': { required: [], types: { mode: 'string' } },
   shell: { required: ['command'], types: { command: 'string' } },
   fetch: { required: ['url'], types: { url: 'string' } },
   'device-info': { required: [], types: {} },
@@ -104,6 +105,7 @@ function convertActionToToolCallString(parsed) {
   if (tool === 'obsidian-delete') return `obsidian-delete: ${JSON.stringify(args)}`;
   if (tool === 'obsidian-move') return `obsidian-move: ${JSON.stringify(args)}`;
   if (tool === 'obsidian-normalize') return `obsidian-normalize: ${JSON.stringify(args)}`;
+  if (tool === 'obsidian-organize') return `obsidian-organize: ${JSON.stringify(args)}`;
   if (tool === 'shell') return `shell: ${args.command || ''}`;
   if (tool === 'fetch') return `fetch: ${args.url || ''}`;
   if (tool === 'device-info') return `device-info`;

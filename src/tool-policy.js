@@ -34,6 +34,7 @@ const TOOL_POLICY = {
   'obsidian-create': 'high',
   'obsidian-delete': 'high',
   'obsidian-move': 'high',
+  'obsidian-organize': 'high',
   'obsidian-append': 'high',
   'obsidian-update': 'high',
   writefile: 'high',
