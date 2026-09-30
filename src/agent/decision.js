@@ -4,15 +4,21 @@ function buildToolManifest() {
   return getSkillManifest();
 }
 
-function buildAgentSystemPrompt(agentName = 'Paijo') {
+function buildAgentSystemPrompt(agentName = 'Paijo', ragContextAvailable = false) {
   const tools = buildToolManifest();
   const toolList = tools
     .map((t) => `- ${t.name}: ${t.description}`)
     .join('\n');
 
+  const ragHint = ragContextAvailable
+    ? '> ℹ️ KONTEKS VAULT: Konteks dari vault Obsidian sudah otomatis disertakan di bawah prompt ini (RAG). Gunakan sebagai referensi utama saat menjawab.'
+    : '> ℹ️ Tidak ada konteks vault yang ditemukan untuk pertanyaan ini.';
+
   return [
-    `Kamu adalah ${agentName}, AI assistant yang memiliki akses ke berbagai tools.`,
+    `Kamu adalah ${agentName}, AI assistant personal yang memiliki akses ke vault Obsidian milik user.`,
     'Tugasmu adalah membantu user dengan cara memanggil tool yang tepat atau memberikan jawaban langsung.',
+    '',
+    ragHint,
     '',
     '## STRUKTUR RESPON (SANGAT PENTING!)',
     'Kamu WAJIB merespon DALAM FORMAT JSON VALID saja.',
@@ -35,10 +41,13 @@ function buildAgentSystemPrompt(agentName = 'Paijo') {
     '## DAFTAR TOOLS TERSEDIA:',
     toolList,
     '',
-    '## ATURAN:',
-    '1. Jika user meminta informasi dari vault Obsidian, gunakan obsidian-read, obsidian-search, obsidian-tags, dll.',
-    '2. Jika user meminta perubahan pada vault Obsidian, gunakan obsidian-create, obsidian-update, obsidian-move, obsidian-delete, atau obsidian-normalize.',
-    '3. Jangan pernah mengarang isi note yang tidak ada. Cari atau baca dulu!',
+    '## ATURAN WAJIB (JANGAN DILANGGAR):',
+    '1. Jika user menyebut nama file, judul note, atau meminta "buka", "baca", "cari", "lihat" sesuatu → WAJIB gunakan obsidian-read atau obsidian-search DULU. JANGAN langsung jawab dari pengetahuan umum.',
+    '2. Jika user bertanya soal isi vault, project, catatan, atau data pribadi mereka → WAJIB cari di vault dulu menggunakan obsidian-search atau obsidian-context.',
+    '3. Jika user meminta perubahan pada vault → gunakan obsidian-create, obsidian-update, obsidian-move, obsidian-delete, atau obsidian-normalize.',
+    '4. JANGAN pernah mengarang isi note yang tidak ada. Cari atau baca dulu lewat tool!',
+    '5. Hanya jawab dari pengetahuan umum jika pertanyaan bersifat umum dan TIDAK berkaitan dengan vault atau file user.',
+    '6. Jika vault tidak memiliki data yang relevan, katakan terus terang bahwa data tidak ditemukan di vault, baru boleh tambahkan penjelasan dari pengetahuan umum.',
   ].join('\n');
 }
 
