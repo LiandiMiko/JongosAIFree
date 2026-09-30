@@ -1,109 +1,96 @@
-const fs = require('fs');
 const path = require('path');
+const {
+  getVaultDir,
+  vaultExists,
+  walkMarkdownFiles,
+  loadNote,
+} = require('../src/vault');
 
-const VAULT_DIR =
-  process.env.OBSIDIAN_VAULT ||
-  path.join(__dirname, '..', 'memory', 'second-brain');
-
-function walk(dir, results = []) {
-  if (!fs.existsSync(dir)) return results;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walk(full, results);
-    } else if (entry.name.endsWith('.md')) {
-      results.push(full);
-    }
-  }
-  return results;
-}
-
-function findNote(query) {
-  const q = query.trim().replace(/\.md$/i, '').toLowerCase();
+function findNoteByNameOrPath(query) {
+  const q = String(query || '').trim().replace(/\\/g, '/');
   if (!q) return null;
 
-  // 1. Exact path relative to vault
-  const exact = path.join(VAULT_DIR, query.endsWith('.md') ? query : `${query}.md`);
-  if (fs.existsSync(exact) && fs.statSync(exact).isFile()) return exact;
+  const files = walkMarkdownFiles();
+  const qLower = q.toLowerCase();
+  const qBase = path.basename(qLower, '.md');
 
-  const all = walk(VAULT_DIR);
+  // 1) exact relative path
+  for (const file of files) {
+    const note = loadNote(file);
+    if (!note) continue;
+    if (note.path.toLowerCase() === qLower) return note;
+    if (note.path.toLowerCase() === qLower + '.md') return note;
+  }
 
-  // 2. Exact filename match (without .md), case-insensitive
-  const exactName = all.find(
-    (f) => path.basename(f, '.md').toLowerCase() === q
-  );
-  if (exactName) return exactName;
+  // 2) exact note name
+  for (const file of files) {
+    const note = loadNote(file);
+    if (!note) continue;
+    if (note.nameLower === qBase) return note;
+  }
 
-  // 3. Partial filename match
-  const partial = all.find((f) =>
-    path.basename(f, '.md').toLowerCase().includes(q)
-  );
-  if (partial) return partial;
+  // 3) path / name contains query
+  for (const file of files) {
+    const note = loadNote(file);
+    if (!note) continue;
+    if (
+      note.path.toLowerCase().includes(qLower) ||
+      note.nameLower.includes(qBase)
+    ) {
+      return note;
+    }
+  }
 
   return null;
-}
-
-function isSensitive(frontmatter) {
-  if (!frontmatter) return false;
-  return /^sensitive\s*:\s*(true|yes|1)\s*$/im.test(frontmatter);
-}
-
-function parseFrontmatter(content) {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return { frontmatter: null, body: content };
-  return {
-    frontmatter: match[1].trim(),
-    body: content.slice(match[0].length),
-  };
 }
 
 module.exports = {
   name: 'obsidian-read',
   description:
-    'Baca satu note dari vault Obsidian berdasarkan nama atau path. ' +
-    'Contoh: "obsidian-read: Sentinel NMS" atau "note: Home".',
+    'Baca isi satu note di vault Obsidian. ' +
+    'Contoh: "obsidian-read: Fundamental Networking"',
 
   trigger(text) {
-    const t = text.trim().toLowerCase();
-    return t.startsWith('note:') || t.startsWith('obsidian-read:');
+    const t = String(text || '').trim().toLowerCase();
+    return (
+      t.startsWith('obsidian-read:') ||
+      t.startsWith('read:') ||
+      t.startsWith('baca:')
+    );
   },
 
   async run(text) {
-    const query = text.replace(/^(note:|obsidian-read:)\s*/i, '').trim();
-    if (!query) {
-      return 'Contoh: obsidian-read: Sentinel NMS';
+    const query = String(text || '')
+      .replace(/^(obsidian-read:|read:|baca:)\s*/i, '')
+      .trim();
+
+    if (!query) return 'Contoh: obsidian-read: Fundamental Networking';
+
+    if (!vaultExists()) {
+      return `Vault tidak ditemukan.\nPath: ${getVaultDir()}`;
     }
 
-    const file = findNote(query);
-    if (!file) {
-      return `Note "${query}" tidak ditemukan di vault.`;
+    const note = findNoteByNameOrPath(query);
+    if (!note) {
+      return `Note tidak ditemukan: "${query}"`;
     }
 
-    try {
-      const raw = fs.readFileSync(file, 'utf-8');
-      if (raw.length > 200000) {
-        return `Note terlalu besar (${raw.length} char).`;
-      }
-
-      const { frontmatter, body } = parseFrontmatter(raw);
-      const rel = path.relative(VAULT_DIR, file);
-
-      const sensitive = isSensitive(frontmatter);
-
-      const parts = [];
-      if (sensitive) {
-        parts.push('[[SENSITIVE-NOTE]]');
-      }
-      parts.push(`📄 **${rel}**`);
-      if (frontmatter) {
-        parts.push('', '```yaml', frontmatter, '```');
-      }
-      parts.push('', body.slice(0, 3500));
-
-      return parts.join('\n');
-    } catch (e) {
-      return `Gagal baca note: ${e.message}`;
+    if (note.sensitive) {
+      return `Note "${note.path}" ditandai sensitive dan tidak dibacakan ke AI.`;
     }
+
+    const maxLen = 8000;
+    const body = note.content.length > maxLen
+      ? note.content.slice(0, maxLen) + '\n\n…(dipotong)'
+      : note.content;
+
+    return [
+      `📄 **${note.path}**`,
+      note.tags.length ? `Tags: ${note.tags.map((t) => '#' + t).join(' ')}` : null,
+      '',
+      body,
+    ]
+      .filter(Boolean)
+      .join('\n');
   },
 };

@@ -1,164 +1,97 @@
-const fs = require('fs');
 const path = require('path');
-
-const VAULT_DIR =
-  process.env.OBSIDIAN_VAULT ||
-  path.join(__dirname, '..', 'memory', 'second-brain');
-
-function walk(dir, results = []) {
-  if (!fs.existsSync(dir)) return results;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walk(full, results);
-    } else if (entry.name.endsWith('.md')) {
-      results.push(full);
-    }
-  }
-  return results;
-}
-
-function normalizeLinkName(name) {
-  return name
-    .split('|')[0]           // strip alias
-    .split('#')[0]           // strip section anchor
-    .trim()
-    .toLowerCase();
-}
-
-function extractLinks(content) {
-  const matches = content.match(/\[\[([^\]]+)\]\]/g) || [];
-  return matches.map((m) => {
-    const inner = m.slice(2, -2);
-    return {
-      raw: inner,
-      name: normalizeLinkName(inner),
-      alias: inner.includes('|') ? inner.split('|')[1].trim() : null,
-    };
-  });
-}
-
-function buildNoteIndex(files) {
-  // Maps: lowercase-note-name → relative path
-  const index = new Map();
-  for (const file of files) {
-    const rel = path.relative(VAULT_DIR, file);
-    const name = path.basename(file, '.md').toLowerCase();
-    index.set(name, rel);
-  }
-  return index;
-}
-
-function findNoteByName(index, query) {
-  const q = query.trim().replace(/\.md$/i, '').toLowerCase();
-  if (!q) return null;
-
-  // Exact match
-  if (index.has(q)) return index.get(q);
-
-  // Partial match
-  for (const [name, rel] of index.entries()) {
-    if (name.includes(q)) return rel;
-  }
-  return null;
-}
+const {
+  getVaultDir,
+  vaultExists,
+  walkMarkdownFiles,
+  loadNote,
+} = require('../src/vault');
 
 module.exports = {
   name: 'obsidian-backlinks',
   description:
-    'Cari note yang me-link ke sebuah note (backlinks), sekaligus lihat outgoing link dari note itu. ' +
-    'Contoh: "obsidian-backlinks: Sentinel NMS".',
+    'Cari note yang me-link ke sebuah note (backlinks), sekaligus lihat outgoing link. ' +
+    'Contoh: "obsidian-backlinks: Fundamental Networking"',
 
   trigger(text) {
-    const t = text.trim().toLowerCase();
+    const t = String(text || '').trim().toLowerCase();
     return t.startsWith('obsidian-backlinks:') || t.startsWith('backlinks:');
   },
 
   async run(text) {
-    const query = text.replace(/^(obsidian-backlinks:|backlinks:)\s*/i, '').trim();
+    const query = String(text || '')
+      .replace(/^(obsidian-backlinks:|backlinks:)\s*/i, '')
+      .trim();
+
     if (!query) {
-      return 'Contoh: obsidian-backlinks: Sentinel NMS';
+      return 'Contoh: obsidian-backlinks: Fundamental Networking';
     }
 
-    const files = walk(VAULT_DIR);
+    if (!vaultExists()) {
+      return `Vault tidak ditemukan.\nPath: ${getVaultDir()}`;
+    }
+
+    const files = walkMarkdownFiles();
     if (!files.length) return 'Vault kosong.';
 
-    const index = buildNoteIndex(files);
-    const targetRel = findNoteByName(index, query);
+    const notes = files
+      .map((f) => loadNote(f))
+      .filter((n) => n && !n.sensitive);
 
-    if (!targetRel) {
+    const byName = new Map(notes.map((n) => [n.nameLower, n]));
+
+    const q = query.replace(/\.md$/i, '').toLowerCase();
+    let target =
+      byName.get(q) ||
+      notes.find((n) => n.nameLower.includes(q)) ||
+      notes.find((n) => n.path.toLowerCase().includes(q));
+
+    if (!target) {
       return `Note "${query}" tidak ditemukan.`;
     }
 
-    const targetName = path.basename(targetRel, '.md').toLowerCase();
+    const targetName = target.nameLower;
 
-    // 1. Outgoing links dari target
-    let outgoing = [];
-    try {
-      const content = fs.readFileSync(path.join(VAULT_DIR, targetRel), 'utf-8');
-      const links = extractLinks(content);
-      const seen = new Set();
-      for (const link of links) {
-        if (seen.has(link.name)) continue;
-        seen.add(link.name);
-        const resolved = index.get(link.name) || null;
-        outgoing.push({
-          name: link.raw,
-          resolved,
-          broken: !resolved,
-        });
-      }
-    } catch (e) {
-      // skip
+    const outgoing = [];
+    const seenOut = new Set();
+    for (const linkName of target.links) {
+      if (seenOut.has(linkName)) continue;
+      seenOut.add(linkName);
+      const resolved = byName.get(linkName) || null;
+      outgoing.push({
+        name: linkName,
+        resolved: resolved ? resolved.path : null,
+        broken: !resolved,
+      });
     }
 
-    // 2. Backlinks — note lain yang link ke target
     const backlinks = [];
-    for (const file of files) {
-      const rel = path.relative(VAULT_DIR, file);
-      if (rel === targetRel) continue;
-
-      let content;
-      try {
-        content = fs.readFileSync(file, 'utf-8');
-      } catch (e) {
-        continue;
-      }
-
-      const links = extractLinks(content);
-      const matching = links.filter((l) => l.name === targetName);
-
-      if (matching.length) {
-        backlinks.push({
-          path: rel,
-          count: matching.length,
-          alias: matching.find((l) => l.alias)?.alias || null,
-        });
+    for (const n of notes) {
+      if (n.path === target.path) continue;
+      if (n.links.includes(targetName)) {
+        backlinks.push({ path: n.path });
       }
     }
 
-    // 3. Format output
-    const lines = [`🔗 **${path.basename(targetRel, '.md')}**`, ''];
-    lines.push(`📁 \`${targetRel}\``);
-    lines.push('');
+    const lines = [
+      `🔗 **${target.name}**`,
+      '',
+      `📁 \`${target.path}\``,
+      '',
+      `⬅️ **Backlinks** (${backlinks.length})`,
+    ];
 
-    // Backlinks
-    lines.push(`⬅️ **Backlinks** (${backlinks.length})`);
-    if (backlinks.length === 0) {
+    if (!backlinks.length) {
       lines.push('   (tidak ada note yang link ke sini)');
     } else {
       for (const b of backlinks) {
-        const aliasMark = b.alias ? ` _(alias: "${b.alias}")_` : '';
-        lines.push(`• \`${b.path}\`${aliasMark}`);
+        lines.push(`• \`${b.path}\``);
       }
     }
 
     lines.push('');
-
-    // Outgoing
     lines.push(`➡️ **Outgoing links** (${outgoing.length})`);
-    if (outgoing.length === 0) {
+
+    if (!outgoing.length) {
       lines.push('   (tidak ada link keluar)');
     } else {
       for (const o of outgoing) {

@@ -1,97 +1,86 @@
-const fs = require('fs');
 const path = require('path');
+const {
+  getVaultDir,
+  vaultExists,
+  resolveNotePath,
+  saveNote,
+  buildNewNote,
+} = require('../src/vault');
 
-const VAULT_DIR =
-  process.env.OBSIDIAN_VAULT ||
-  path.join(__dirname, '..', 'memory', 'second-brain');
-
-function resolveVaultPath(relPath) {
-  // Sanitize: no absolute, no .., no leading slash
-  const clean = relPath
-    .replace(/^\/+/, '')
-    .replace(/\\/g, '/')
+function parseInput(text) {
+  const raw = String(text || '')
+    .replace(/^obsidian-create:\s*/i, '')
     .trim();
 
-  if (!clean) {
-    throw new Error('Path kosong.');
+  // Agent sering kirim JSON: {"path":"...","content":"..."}
+  if (raw.startsWith('{')) {
+    try {
+      const obj = JSON.parse(raw);
+      return {
+        notePath: String(obj.path || '').trim(),
+        content: String(obj.content || '').trim(),
+      };
+    } catch {
+      // fallthrough
+    }
   }
 
-  if (clean.split('/').some((seg) => seg === '..')) {
-    throw new Error('Path tidak boleh mengandung "..".');
+  // Format lama: path | content
+  const parts = raw.split('|');
+  if (parts.length >= 2) {
+    return {
+      notePath: parts[0].trim(),
+      content: parts.slice(1).join('|').trim(),
+    };
   }
 
-  if (path.isAbsolute(clean)) {
-    throw new Error('Path harus relatif terhadap vault.');
-  }
-
-  const full = path.resolve(VAULT_DIR, clean);
-  const vaultResolved = path.resolve(VAULT_DIR);
-
-  if (!full.startsWith(vaultResolved + path.sep) && full !== vaultResolved) {
-    throw new Error('Path keluar dari vault.');
-  }
-
-  return full;
+  return { notePath: raw, content: '' };
 }
 
 module.exports = {
   name: 'obsidian-create',
   description:
-    'Bikin note .md baru di vault Obsidian. ' +
-    'Butuh approval. Args: {path, content}.',
+    'Buat note baru di vault Obsidian dengan format standar. ' +
+    'Contoh: obsidian-create: {"path":"Inbox/Ide Baru.md","content":"ringkasan..."}',
 
   trigger(text) {
-    const t = text.trim().toLowerCase();
-    return t.startsWith('obsidian-create:') || t.startsWith('new note:');
+    const t = String(text || '').trim().toLowerCase();
+    return t.startsWith('obsidian-create:');
   },
 
-  async run(input) {
-    // input = `obsidian-create: {"path":"...","content":"..."}`
-    const json = input.replace(/^(obsidian-create:|new note:)\s*/i, '').trim();
-
-    let args;
-    try {
-      args = JSON.parse(json);
-    } catch (e) {
-      return `Format input salah: ${e.message}`;
+  async run(text) {
+    if (!vaultExists()) {
+      return `Vault tidak ditemukan.\nPath: ${getVaultDir()}`;
     }
 
-    const { path: relPath, content } = args;
-
-    if (!relPath || typeof relPath !== 'string') {
-      return 'Arg "path" wajib diisi.';
+    const { notePath, content } = parseInput(text);
+    if (!notePath) {
+      return 'Path note wajib diisi. Contoh: Inbox/Ide Baru.md';
     }
 
-    if (typeof content !== 'string') {
-      return 'Arg "content" harus string.';
+    let rel = notePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!rel.toLowerCase().endsWith('.md')) {
+      rel += '.md';
     }
 
-    let fullPath;
-    try {
-      fullPath = resolveVaultPath(relPath);
-    } catch (e) {
-      return `Path tidak valid: ${e.message}`;
+    const abs = resolveNotePath(rel);
+    const vaultDir = getVaultDir();
+
+    if (!abs.startsWith(vaultDir)) {
+      return 'Path di luar vault tidak diizinkan.';
     }
 
-    // Ensure .md extension
-    if (!fullPath.endsWith('.md')) {
-      fullPath += '.md';
-    }
-
-    if (fs.existsSync(fullPath)) {
-      return `Note sudah ada: ${path.relative(VAULT_DIR, fullPath)}\nGunakan obsidian-append atau obsidian-update.`;
-    }
+    const title = path.basename(rel, '.md');
+    const finalContent = content
+      ? buildNewNote({ title, body: content })
+      : buildNewNote({ title });
 
     try {
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-      fs.writeFileSync(fullPath, content, 'utf-8');
-
-      const rel = path.relative(VAULT_DIR, fullPath);
-      const lines = content.split('\n').length;
-
-      return `✅ Note dibuat: ${rel}\n📏 ${lines} baris, ${content.length} char.`;
-    } catch (e) {
-      return `Gagal bikin note: ${e.message}`;
+      saveNote(abs, finalContent);
+    } catch (err) {
+      return `Gagal membuat note: ${err.message}`;
     }
+
+    return `✅ Note dibuat: \`${rel}\`\nPath absolut: ${abs}`;
   },
 };

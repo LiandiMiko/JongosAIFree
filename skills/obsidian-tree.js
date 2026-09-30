@@ -1,14 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const { getVaultDir, vaultExists } = require('../src/vault');
 
-const VAULT_DIR =
-  process.env.OBSIDIAN_VAULT ||
-  path.join(__dirname, '..', 'memory', 'second-brain');
-
-const SKIP_DIRS = new Set(['.git', '.obsidian', '.trash', 'node_modules']);
-
-function buildTree(dir, prefix = '', depth = 0, maxDepth = 4) {
+function listTree(dir, prefix = '', maxDepth = 4, depth = 0) {
   if (depth > maxDepth) return [];
+  if (!fs.existsSync(dir)) return [];
 
   let entries;
   try {
@@ -17,133 +13,81 @@ function buildTree(dir, prefix = '', depth = 0, maxDepth = 4) {
     return [];
   }
 
-  // Sort: folder dulu, alphabetically
-  entries.sort((a, b) => {
-    if (a.isDirectory() && !b.isDirectory()) return -1;
-    if (!a.isDirectory() && b.isDirectory()) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  entries = entries
+    .filter((e) => !e.name.startsWith('.'))
+    .sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
   const lines = [];
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    if (SKIP_DIRS.has(entry.name)) continue;
-    if (entry.name.startsWith('.')) continue;
-
     const isLast = i === entries.length - 1;
-    const branch = isLast ? '└── ' : '├── ';
-    const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+    const branch = isLast ? '└─ ' : '├─ ';
+    const nextPrefix = prefix + (isLast ? '   ' : '│  ');
+    const full = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      const fullPath = path.join(dir, entry.name);
-      const children = fs.readdirSync(fullPath, { withFileTypes: true });
-      const mdCount = children.filter((c) => c.name.endsWith('.md')).length;
-      const folderCount = children.filter((c) => c.isDirectory()).length;
-
-      let label = entry.name;
-      if (mdCount || folderCount) {
-        const parts = [];
-        if (mdCount) parts.push(`${mdCount} .md`);
-        if (folderCount) parts.push(`${folderCount} folder`);
-        label += ` (${parts.join(', ')})`;
-      }
-
-      lines.push(prefix + branch + label + '/');
-      lines.push(...buildTree(fullPath, nextPrefix, depth + 1, maxDepth));
+      lines.push(`${prefix}${branch}📁 ${entry.name}/`);
+      lines.push(...listTree(full, nextPrefix, maxDepth, depth + 1));
     } else if (entry.name.endsWith('.md')) {
-      const stats = fs.statSync(path.join(dir, entry.name));
-      const size = stats.size;
-      const sizeLabel = size < 1024 ? `${size}B` : `${(size / 1024).toFixed(1)}K`;
-      lines.push(prefix + branch + entry.name + ` (${sizeLabel})`);
+      lines.push(`${prefix}${branch}📄 ${entry.name}`);
     }
   }
 
   return lines;
 }
 
-function countAll(dir) {
-  let mdCount = 0;
-  let folderCount = 0;
-
-  function walk(d) {
-    let entries;
-    try {
-      entries = fs.readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
-      if (entry.isDirectory()) {
-        folderCount++;
-        walk(path.join(d, entry.name));
-      } else if (entry.name.endsWith('.md')) {
-        mdCount++;
-      }
-    }
-  }
-
-  walk(dir);
-  return { mdCount, folderCount };
-}
-
 module.exports = {
   name: 'obsidian-tree',
   description:
-    'Tampilkan struktur folder (tree) vault Obsidian. ' +
-    'Contoh: "obsidian-tree" atau "obsidian-tree: 04 Knowledge".',
+    'Tampilkan struktur folder vault Obsidian. ' +
+    'Contoh: "obsidian-tree" atau "obsidian-tree: 1.1 Main"',
 
   trigger(text) {
-    const t = text.trim().toLowerCase();
-    return (
-      t === 'obsidian-tree' ||
-      t.startsWith('obsidian-tree:') ||
-      t === 'tree' ||
-      t.startsWith('tree:')
-    );
+    const t = String(text || '').trim().toLowerCase();
+    return t === 'obsidian-tree' || t.startsWith('obsidian-tree:');
   },
 
-  async run(text) {
-    const stripped = text.trim().toLowerCase();
-    const query =
-      stripped === 'obsidian-tree' || stripped === 'tree'
-        ? ''
-        : text.replace(/^(obsidian-tree:|tree:)\s*/i, '').trim();
-
-    const targetDir = query
-      ? path.resolve(VAULT_DIR, query)
-      : VAULT_DIR;
-
-    // Validasi targetDir di dalam vault
-    if (!targetDir.startsWith(path.resolve(VAULT_DIR))) {
-      return '❌ Path di luar vault.';
+    async run(text) {
+    if (!vaultExists()) {
+      return `Vault tidak ditemukan.\nPath: ${getVaultDir()}`;
     }
 
-    if (!fs.existsSync(targetDir)) {
-      return `❌ Folder tidak ditemukan: ${query}`;
+    const vaultDir = getVaultDir();
+    let rel = String(text || '').trim();
+
+    // Hapus prefix command
+    rel = rel.replace(/^obsidian-tree:\s*/i, '').trim();
+
+    // Kalau user hanya ketik "obsidian-tree" → artinya root vault
+    if (!rel || rel.toLowerCase() === 'obsidian-tree') {
+      rel = '';
     }
 
-    const stats = fs.statSync(targetDir);
-    if (!stats.isDirectory()) {
-      return `❌ Bukan folder: ${query}`;
+    rel = rel.replace(/\\/g, '/');
+
+    const target = rel ? path.resolve(vaultDir, rel) : vaultDir;
+
+    if (!target.startsWith(vaultDir)) {
+      return 'Path di luar vault tidak diizinkan.';
     }
 
-    const { mdCount, folderCount } = countAll(targetDir);
-    const relName = query
-      ? path.relative(VAULT_DIR, targetDir)
-      : path.basename(VAULT_DIR);
+    if (!fs.existsSync(target)) {
+      return `Folder tidak ditemukan: ${rel || '(root)'}`;
+    }
 
-    const lines = [];
-    lines.push(`📁 **${relName}/**`);
-    lines.push('');
-    lines.push('```');
-    lines.push(`${relName}/`);
-    lines.push(...buildTree(targetDir));
-    lines.push('```');
-    lines.push('');
-    lines.push(`📊 Total: **${mdCount}** file .md, **${folderCount}** folder`);
+    const lines = listTree(target, '', 4, 0);
+    if (!lines.length) return 'Folder kosong.';
 
-    return lines.join('\n');
+    return [
+      `🌳 **Vault tree** — ${rel || '(root)'}`,
+      `Path: ${vaultDir}`,
+      '',
+      ...lines,
+    ].join('\n');
   },
 };

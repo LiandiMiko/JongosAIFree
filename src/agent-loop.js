@@ -122,6 +122,21 @@ const TOOL_ARG_SCHEMAS = {
     },
   },
 
+    'obsidian-delete': {
+    required: ['path'],
+    types: {
+      path: 'string',
+    },
+  },
+
+    'obsidian-move': {
+    required: ['from', 'to'],
+    types: {
+      from: 'string',
+      to: 'string',
+    },
+  },
+
   shell: {
     required: ['command'],
     types: {
@@ -324,6 +339,9 @@ function buildSkillInput(tool, args = {}) {
         path: args.path || '',
         content: args.content || '',
       })}`;
+
+    case 'obsidian-delete':
+      return `obsidian-delete: ${args.path || ''}`;
 
     case 'addskill':
       return `addskill: ${args.name || ''} | ${args.code || ''}`;
