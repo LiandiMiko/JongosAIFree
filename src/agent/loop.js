@@ -1,12 +1,23 @@
 const { callLLM } = require('../providers');
 const { buildAgentSystemPrompt, parseAgentResponse } = require('./decision');
 const { validateAgentAction, executeAction } = require('./tool-executor');
+const { retrieveContext, indexVault } = require('../rag');
 
 async function runAgentLoop(userMessage, config = {}, meta = {}) {
   const maxSteps = config.maxSteps || 5;
   const agentName = config.agentName || 'Paijo';
 
-  const systemPrompt = buildAgentSystemPrompt(agentName);
+  let systemPrompt = buildAgentSystemPrompt(agentName);
+
+  // Auto RAG context injection
+  try {
+    const ragContext = retrieveContext(userMessage, 3);
+    if (ragContext) {
+      systemPrompt += `\n\n${ragContext}`;
+    }
+  } catch (err) {
+    console.log('[rag] Skipped context retrieval:', err.message);
+  }
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -51,6 +62,19 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
       if (result.status === 'approval_required') {
         return result.message;
+      }
+
+      // Auto-reindex RAG store after vault mutations
+      if (
+        result.status === 'success' &&
+        parsed.tool.startsWith('obsidian-') &&
+        ['obsidian-create', 'obsidian-update', 'obsidian-append', 'obsidian-delete', 'obsidian-move', 'obsidian-normalize'].includes(parsed.tool)
+      ) {
+        try {
+          indexVault();
+        } catch (rErr) {
+          console.log('[rag] Auto reindex after mutation error:', rErr.message);
+        }
       }
 
       if (result.status === 'blocked') {
