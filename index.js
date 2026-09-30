@@ -35,7 +35,8 @@ try {
 const hasGeminiKey =
   process.env.GEMINI_API_KEY_1 ||
   process.env.GEMINI_API_KEY_2 ||
-  process.env.GEMINI_API_KEY_3;
+  process.env.GEMINI_API_KEY_3 ||
+  process.env.GEMINI_API_KEY;
 const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY;
 const hasMistralKey = !!process.env.MISTRAL_API_KEY;
 const hasLlamaCpp = !!process.env.LLAMACPP_URL;
@@ -73,7 +74,7 @@ if (!config.model) {
   // Sensible defaults per provider
   const defaults = {
     groq: 'llama-3.3-70b-versatile',
-    gemini: 'gemini-2.0-flash',
+    gemini: 'gemini-3.8-flash',
     openrouter: 'google/gemma-2-9b-it:free',
     mistral: 'mistral-small-latest',
     sambanova: 'Meta-Llama-3.3-70B-Instruct',

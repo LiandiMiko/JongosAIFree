@@ -1,7 +1,7 @@
 {
   "agentName": "Paijo",
-  "provider": "groq",
-  "model": "llama-3.3-70b-versatile",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
   "telegramToken": "",
   "webPort": 3000,
   "maxSteps": 5

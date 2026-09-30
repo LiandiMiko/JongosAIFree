@@ -4,7 +4,11 @@ const { recordUsage, markSuccess } = require('../llm-status');
 const LLM7_URL = process.env.LLM7_URL || 'https://api.llm7.io/v1';
 
 function getApiKey() {
-  return process.env.LLM7_API_KEY || 'unused';
+  const key = process.env.LLM7_API_KEY;
+  if (!key || !String(key).trim()) {
+    throw new Error('LLM7_API_KEY tidak ada di .env — provider ini dilewati');
+  }
+  return String(key).trim();
 }
 
 async function callLLM7(messages, model, options = {}) {
