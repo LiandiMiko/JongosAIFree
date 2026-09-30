@@ -157,7 +157,8 @@ function startWebUI(config) {
   // === End dashboard endpoints ===
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[webui] Server running at http://0.0.0.0:${port}`);
+    console.log(`[webui] Server running at http://localhost:${port} (or http://127.0.0.1:${port})`);
+    console.log(`[webui] Dashboard: http://localhost:${port}/dashboard`);
   });
 }
 
