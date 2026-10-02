@@ -12,7 +12,8 @@
     "setup": "node setup.js",
     "dev": "node --watch index.js",
     "reindex": "node scripts/reindex-vault.js",
-    "import": "node scripts/import-ai-chats.js"
+    "import": "node scripts/import-ai-chats.js",
+    "test:intent": "node scripts/test-intent.js"
   },
   "keywords": [
     "ai",

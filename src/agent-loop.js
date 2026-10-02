@@ -23,6 +23,23 @@ async function runAgent(text, config = {}, meta = {}) {
   const userId = meta.userId || 'anonymous';
 
   try {
+    // Central status short-circuit (Telegram + WebUI + any caller)
+    try {
+      const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
+      if (isProviderStatusQuery(text)) {
+        const answer = formatProviderStatus({ html: false });
+        try {
+          await addMessage(userId, 'user', text);
+          await addMessage(userId, 'assistant', answer);
+        } catch (e) {
+          console.log('[agent-loop] memory save skipped:', e.message);
+        }
+        return { status: 'answered', answer };
+      }
+    } catch (e) {
+      console.log('[agent-loop] status check skipped:', e.message);
+    }
+
     const result = await runAgentLoop(text, config, {
       ...meta,
       userId,

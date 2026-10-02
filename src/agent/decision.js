@@ -4,25 +4,211 @@ function buildToolManifest() {
   return getSkillManifest();
 }
 
-/** Pertanyaan yang butuh data live (internet / jam server), bukan vault. */
-function isRealtimeQuery(text) {
-  const t = String(text || '').toLowerCase();
-  if (!t.trim()) return false;
+/**
+ * Unified intent classifier.
+ * Types: status | time | realtime | vault | shell | general
+ */
+function classifyIntent(text) {
+  const raw = String(text || '').trim();
+  const t = raw.toLowerCase();
 
-  const liveIntent =
-    /\b(harga|price|kurs|cuaca|weather|berita|news|ticker|spot)\b/i.test(t) ||
-    /\b(saat ini|hari ini|sekarang|real[\s-]?time|terkini|terbaru|live)\b/i.test(t) ||
-    /\b(btc|bitcoin|eth|ethereum|usdt|ondo|tao|bittensor|crypto|kripto|saham|stock)\b/i.test(
+  const result = {
+    type: 'general',
+    confidence: 'low',
+    skipRag: false,
+    preferTools: [],
+    blockTools: [],
+    hints: [],
+  };
+
+  if (!t) return result;
+
+  // --- STATUS (provider / token / kuota) — highest priority for short queries
+  const statusHit = isStatusIntent(t);
+  if (statusHit) {
+    result.type = 'status';
+    result.confidence = 'high';
+    result.skipRag = true;
+    result.blockTools = ['shell', 'fetch', 'obsidian-search', 'obsidian-read'];
+    result.hints.push('Pertanyaan status provider/token/kuota — jawab via laporan status, bukan vault.');
+    return result;
+  }
+
+  // --- TIME ONLY (jam/tanggal hari ini tanpa data live lain)
+  const timeOnly = isTimeOnlyIntent(t);
+  if (timeOnly) {
+    result.type = 'time';
+    result.confidence = 'high';
+    result.skipRag = true;
+    result.blockTools = ['shell', 'fetch'];
+    result.preferTools = [];
+    result.hints.push('Cukup pakai waktu server; tidak perlu shell/fetch/vault.');
+    return result;
+  }
+
+  // --- VAULT (explicit memory / note requests)
+  const vaultHit = isVaultIntent(t);
+  if (vaultHit.matched) {
+    result.type = 'vault';
+    result.confidence = vaultHit.confidence;
+    result.skipRag = false;
+    result.preferTools = [
+      'obsidian-search',
+      'obsidian-read',
+      'obsidian-tree',
+      'obsidian-tags',
+      'obsidian-context',
+      'obsidian-backlinks',
+    ];
+    result.blockTools = [];
+    result.hints.push('Prioritaskan tool obsidian-* / RAG; jangan mengarang isi note.');
+    // If also looks live but explicitly vault → vault wins
+    return result;
+  }
+
+  // --- REALTIME (harga, berita, cuaca, crypto live)
+  const liveHit = isRealtimeIntent(t);
+  if (liveHit) {
+    result.type = 'realtime';
+    result.confidence = 'high';
+    result.skipRag = true;
+    result.preferTools = ['fetch'];
+    result.blockTools = ['shell'];
+    result.hints.push(
+      'Data live: WAJIB fetch ke sumber online. Jangan shell/curl, jangan andalkan RAG vault.'
+    );
+    return result;
+  }
+
+  // --- SHELL-ish (sistem lokal eksplisit)
+  if (isShellIntent(t)) {
+    result.type = 'shell';
+    result.confidence = 'medium';
+    result.skipRag = true;
+    result.preferTools = ['shell', 'device-info'];
+    result.hints.push('Perintah sistem lokal — shell hanya untuk satu command sederhana, tanpa chaining.');
+    return result;
+  }
+
+  result.type = 'general';
+  result.confidence = 'low';
+  return result;
+}
+
+function isStatusIntent(t) {
+  if (
+    t === '/status' ||
+    t === 'status' ||
+    t === 'cek status' ||
+    t === 'status?' ||
+    t.startsWith('/status')
+  ) {
+    return true;
+  }
+
+  const aboutProvider =
+    /\b(token|api\s*key|provider|kuota|quota|llm|gemini|groq|pemakaian|usage|sambanova|openrouter|mistral|llm7)\b/i.test(
+      t
+    );
+  const asksStatus =
+    /\b(status|cek|sisa|berapa|info|lihat|tampilkan|show)\b/i.test(t);
+
+  if (aboutProvider && asksStatus) return true;
+
+  if (
+    /\bstatus\s+(token|api|provider|llm|kuota|quota|key)\b/i.test(t) ||
+    /\b(token|api|provider|kuota|quota)\s+status\b/i.test(t) ||
+    /\bcek\s+(token|kuota|quota|provider|api|usage)\b/i.test(t) ||
+    /\b(sisa|berapa)\s+(kuota|quota|request|token)\b/i.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isTimeOnlyIntent(t) {
+  // Must ask about time/date AND not ask about price/news/weather
+  const asksTime =
+    /\b(jam|tanggal|hari)\b/i.test(t) &&
+    /\b(berapa|sekarang|hari ini|saat ini)\b/i.test(t);
+
+  const hasLivePayload =
+    /\b(harga|price|kurs|cuaca|weather|berita|news|btc|bitcoin|eth|crypto|kripto|saham)\b/i.test(
+      t
+    );
+
+  // Pure time questions
+  if (
+    /^(jam berapa|tanggal berapa|hari apa|hari ini tanggal berapa|sekarang jam berapa)[\s?]*$/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+
+  return asksTime && !hasLivePayload;
+}
+
+function isVaultIntent(t) {
+  const strong =
+    /\b(vault|obsidian)\b/i.test(t) ||
+    /\b(baca|buka|tampilkan|lihat|cari|search)\b.{0,40}\b(note|catatan|file)\b/i.test(t) ||
+    /\b(note|catatan)\b.{0,40}\b(tentang|soal|mengenai|project|proyek)\b/i.test(t) ||
+    /\b(second\s*brain|knowledge|progres|progress\s*log)\b/i.test(t) ||
+    /\b(append|tambah|update|edit|hapus|pindah|rapikan)\b.{0,30}\b(note|catatan|vault)\b/i.test(
       t
     ) ||
-    /\b(tanggal|jam)\b.{0,40}\b(berapa|sekarang|hari ini)\b/i.test(t) ||
-    /\b(berapa).{0,40}\b(harga|tanggal|jam)\b/i.test(t);
+    /\b(list|isi|struktur)\b.{0,20}\b(folder|vault|note)\b/i.test(t);
 
-  // Kecuali jelas minta isi vault
-  const vaultIntent =
-    /\b(vault|obsidian|note|catatan|baca file|buka note)\b/i.test(t);
+  const medium =
+    /\b(catatan|note)\s+(saya|aku|ku)\b/i.test(t) ||
+    /\b(yang pernah|yang sudah)\s+(aku|saya)\s+(tulis|catat)\b/i.test(t);
 
-  return liveIntent && !vaultIntent;
+  if (strong) return { matched: true, confidence: 'high' };
+  if (medium) return { matched: true, confidence: 'medium' };
+  return { matched: false, confidence: 'low' };
+}
+
+function isRealtimeIntent(t) {
+  const liveKeyword =
+    /\b(harga|price|kurs|cuaca|weather|berita|news|ticker|spot)\b/i.test(t) ||
+    /\b(btc|bitcoin|eth|ethereum|usdt|ondo|tao|bittensor|crypto|kripto|saham|stock|forex)\b/i.test(
+      t
+    );
+
+  const liveTime =
+    /\b(saat ini|sekarang|real[\s-]?time|terkini|terbaru|live|hari ini)\b/i.test(t);
+
+  // "harga X" alone is enough
+  if (/\b(harga|price|kurs)\b/i.test(t)) return true;
+  if (/\b(cuaca|weather)\b/i.test(t)) return true;
+  if (/\b(berita|news)\b.{0,20}\b(terbaru|terkini|hari ini|sekarang)?\b/i.test(t)) return true;
+
+  // crypto ticker-ish
+  if (
+    /\b(btc|bitcoin|eth|ethereum|ondo|tao)\b/i.test(t) &&
+    (liveTime || /\b(berapa|harga|price)\b/i.test(t) || t.length < 40)
+  ) {
+    return true;
+  }
+
+  return liveKeyword && liveTime;
+}
+
+function isShellIntent(t) {
+  return (
+    /\b(jalankan|run|eksekusi)\b.{0,20}\b(command|perintah|shell|terminal)\b/i.test(t) ||
+    /\b(shell|terminal|bash|cmd)\b/i.test(t) ||
+    /\b(list\s+process|ps aux|df -h|free -m|uptime)\b/i.test(t) ||
+    /\b(device info|info perangkat|spesifikasi hp|spesifikasi device)\b/i.test(t)
+  );
+}
+
+/** Backward-compatible helper */
+function isRealtimeQuery(text) {
+  const intent = classifyIntent(text);
+  return intent.type === 'realtime' || intent.type === 'time';
 }
 
 function getServerTimeInfo() {
@@ -43,6 +229,41 @@ function getServerTimeInfo() {
   };
 }
 
+function buildIntentHintBlock(intent) {
+  if (!intent || intent.type === 'general') return '';
+
+  const lines = [
+    '',
+    `## INTENT TERDETEKSI: ${intent.type.toUpperCase()} (confidence: ${intent.confidence})`,
+  ];
+
+  if (intent.hints && intent.hints.length) {
+    for (const h of intent.hints) lines.push(`- ${h}`);
+  }
+  if (intent.preferTools && intent.preferTools.length) {
+    lines.push(`- Prefer tools: ${intent.preferTools.join(', ')}`);
+  }
+  if (intent.blockTools && intent.blockTools.length) {
+    lines.push(`- JANGAN pakai: ${intent.blockTools.join(', ')}`);
+  }
+
+  if (intent.type === 'status') {
+    lines.push(
+      '- Untuk status provider/token: arahkan user ke /status atau jelaskan bahwa laporan status tersedia via perintah /status. Jangan search vault.'
+    );
+  }
+  if (intent.type === 'time') {
+    lines.push('- Jawab FINAL langsung dari WAKTU SERVER. Jangan tool.');
+  }
+  if (intent.type === 'realtime') {
+    lines.push(
+      '- Contoh fetch Binance: {"action":"tool","tool":"fetch","args":{"url":"https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"}}'
+    );
+  }
+
+  return lines.join('\n');
+}
+
 function buildAgentSystemPrompt(
   agentName = 'Paijo',
   ragContextAvailable = false,
@@ -53,14 +274,23 @@ function buildAgentSystemPrompt(
     .map((t) => `- ${t.name}: ${t.description}`)
     .join('\n');
 
-  const realtimeMode = options.realtimeMode === true;
+  const intent = options.intent || { type: 'general' };
+  const realtimeMode =
+    options.realtimeMode === true || intent.type === 'realtime';
   const timeInfo = getServerTimeInfo();
 
-  const ragHint = realtimeMode
-    ? '> ⚠️ MODE REAL-TIME: Pertanyaan ini butuh data terkini. JANGAN andalkan RAG/vault untuk harga, berita, cuaca, atau fakta "saat ini". WAJIB pakai tool fetch ke sumber online. Tanggal/jam boleh dari waktu server di bawah.'
-    : ragContextAvailable
-      ? '> ℹ️ KONTEKS VAULT: Cuplikan vault (RAG) ada di bawah. Gunakan jika relevan dengan pertanyaan tentang catatan/project user. Jangan pakai untuk harga live.'
-      : '> ℹ️ Tidak ada konteks vault yang cocok untuk pertanyaan ini.';
+  let ragHint;
+  if (intent.type === 'realtime' || intent.type === 'time' || intent.type === 'status') {
+    ragHint =
+      '> ⚠️ MODE KHUSUS: Jangan andalkan RAG/vault untuk pertanyaan ini. Ikuti blok INTENT di bawah.';
+  } else if (ragContextAvailable) {
+    ragHint =
+      '> ℹ️ KONTEKS VAULT: Cuplikan vault (RAG) ada di bawah. Gunakan jika relevan dengan catatan/project user. Jangan pakai untuk harga live.';
+  } else {
+    ragHint = '> ℹ️ Tidak ada konteks vault yang cocok untuk pertanyaan ini.';
+  }
+
+  const intentBlock = buildIntentHintBlock(intent);
 
   return [
     `Kamu adalah ${agentName}, AI assistant personal dengan akses vault Obsidian dan internet (tool fetch).`,
@@ -72,6 +302,7 @@ function buildAgentSystemPrompt(
     'Untuk "hari ini tanggal berapa / jam berapa" → boleh jawab dari waktu server ini tanpa tool.',
     '',
     ragHint,
+    intentBlock,
     '',
     '## STRUKTUR RESPON (SANGAT PENTING!)',
     'Kamu WAJIB merespon DALAM FORMAT JSON VALID saja.',
@@ -95,21 +326,21 @@ function buildAgentSystemPrompt(
     toolList,
     '',
     '## PRIORITAS SUMBER DATA (WAJIB):',
-    '1. Data LIVE (harga kripto/saham, cuaca, berita, "saat ini", "hari ini" selain isi vault) → tool **fetch** ke URL API/situs. CONTOH harga Binance:',
-    '   {"action":"tool","tool":"fetch","args":{"url":"https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"}}',
-    '   Untuk beberapa simbol, fetch satu per satu atau endpoint yang sesuai.',
-    '2. Tanggal/jam "hari ini" → pakai WAKTU SERVER di atas (final), tidak perlu shell/fetch.',
-    '3. Isi vault / note / project user → obsidian-search / obsidian-read / RAG.',
-    '4. Perintah sistem lokal (list file OS, process) → shell — HANYA jika benar-benar perlu dan BUKAN untuk browsing web.',
+    '1. Data LIVE (harga kripto/saham, cuaca, berita, "saat ini") → tool **fetch** ke URL API/situs.',
+    '2. Tanggal/jam "hari ini" → pakai WAKTU SERVER (final), tidak perlu shell/fetch.',
+    '3. Status API/token/kuota → bukan vault; arahkan ke /status.',
+    '4. Isi vault / note / project user → obsidian-search / obsidian-read / RAG.',
+    '5. Perintah sistem lokal → shell — HANYA jika perlu dan BUKAN untuk browsing web.',
     '',
     '## ATURAN WAJIB:',
-    '1. JANGAN pakai shell untuk cek harga, download web, curl ke API publik, atau "tanggal". Pakai fetch atau waktu server.',
+    '1. JANGAN pakai shell untuk cek harga, download web, curl/wget ke API publik, atau cek tanggal. Pakai fetch atau waktu server.',
     '2. JANGAN mengarang harga/kurs/berita. Kalau butuh angka terkini → fetch dulu, baru final.',
-    '3. JANGAN mengandalkan cuplikan RAG vault untuk harga crypto "saat ini" (data vault bisa usang).',
+    '3. JANGAN mengandalkan cuplikan RAG vault untuk harga crypto "saat ini".',
     '4. Jika user minta buka/baca/cari note di vault → obsidian-* dulu.',
     '5. JANGAN mengarang isi note. Cari/baca dulu lewat tool.',
-    '6. Status API/token/kuota agent → bukan isi vault; arahkan ke /status.',
+    '6. Satu action shell = satu command sederhana. Dilarang &&, ||, ;, |, >, <, backtick, $().',
     '7. Setelah fetch berhasil, berikan final yang jelas (angka + sumber URL + waktu server).',
+    '8. Ringkas: jangan panggil tool yang sama berulang tanpa alasan.',
   ].join('\n');
 }
 
@@ -144,4 +375,10 @@ module.exports = {
   parseAgentResponse,
   isRealtimeQuery,
   getServerTimeInfo,
+  classifyIntent,
+  isStatusIntent,
+  isVaultIntent,
+  isRealtimeIntent,
+  isTimeOnlyIntent,
+  isShellIntent,
 };

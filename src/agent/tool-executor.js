@@ -130,24 +130,101 @@ function convertActionToToolCallString(parsed) {
  *   { status: 'error', error }
  *   { status: 'approval_required', requestId, tool, args, policy, message }
  */
+/**
+ * Hard policy checks before permission / approval gates.
+ * Blocks shell-as-browser, date via shell, chaining, etc.
+ */
+function checkHardToolPolicy(tool, args = {}, meta = {}) {
+  const intent = meta.intent || null;
+
+  if (intent && Array.isArray(intent.blockTools) && intent.blockTools.includes(tool)) {
+    return {
+      blocked: true,
+      error:
+        `[POLICY] Tool "${tool}" diblokir untuk intent "${intent.type}". ` +
+        (intent.preferTools?.length
+          ? `Gunakan: ${intent.preferTools.join(', ')}.`
+          : 'Jawab final jika memungkinkan.'),
+    };
+  }
+
+  if (tool === 'shell') {
+    const cmd = String(args.command || '').trim();
+    const lower = cmd.toLowerCase();
+
+    // No empty command
+    if (!cmd) {
+      return { blocked: true, error: '[POLICY] Command shell kosong.' };
+    }
+
+    // No chaining / redirection
+    if (/[;&|`]|\$\(|&&|\|\||>|<|\n/.test(cmd)) {
+      return {
+        blocked: true,
+        error:
+          '[POLICY] Shell hanya boleh satu command sederhana. Dilarang chaining (&&, ||, ;, |), redirect, backtick, atau $().',
+      };
+    }
+
+    // Shell must not be used as browser / price checker
+    if (
+      /\b(curl|wget|http:\/\/|https:\/\/|fetch|axios)\b/.test(lower) ||
+      /binance|coingecko|coinmarketcap|ticker|ondousdt|taousdt|api\.|\.com\/|\.io\//.test(
+        lower
+      )
+    ) {
+      return {
+        blocked: true,
+        error:
+          '[POLICY] Jangan pakai shell untuk akses web/harga. Gunakan tool fetch dengan URL (contoh Binance ticker).',
+      };
+    }
+
+    // Date/time via shell → use server time instead
+    if (
+      /^(date|timedatectl)\b/.test(lower) ||
+      /\b(date\s+%|clock)\b/.test(lower)
+    ) {
+      return {
+        blocked: true,
+        error:
+          '[POLICY] Jangan pakai shell untuk cek tanggal/jam. Gunakan waktu server yang sudah tersedia di system prompt.',
+      };
+    }
+  }
+
+  if (tool === 'fetch') {
+    const url = String(args.url || '').trim();
+    if (!url) {
+      return { blocked: true, error: '[POLICY] URL fetch kosong.' };
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      return {
+        blocked: true,
+        error: '[POLICY] fetch hanya menerima URL http/https yang valid.',
+      };
+    }
+  }
+
+  return { blocked: false };
+}
+
+/**
+ * Execute a parsed agent action (tool call).
+ * Returns structured result:
+ *   { status: 'success', output }
+ *   { status: 'blocked', error }
+ *   { status: 'error', error }
+ *   { status: 'approval_required', requestId, tool, args, policy, message }
+ */
 async function executeAction(parsed, meta = {}) {
   const { tool, args = {} } = parsed;
   const toolCallString = convertActionToToolCallString(parsed);
   const userId = meta.userId || meta.user || 'anonymous';
 
-  // Jangan pakai shell sebagai pengganti fetch (curl/wget/harga web)
-  if (tool === 'shell') {
-    const cmd = String(args.command || toolCallString || '').toLowerCase();
-    if (
-      /\b(curl|wget|http:\/\/|https:\/\/)\b/.test(cmd) ||
-      /binance|coingecko|coinmarketcap|ticker|ondousdt|taousdt/.test(cmd)
-    ) {
-      return {
-        status: 'blocked',
-        error:
-          '[POLICY] Jangan pakai shell untuk akses web/harga. Gunakan tool fetch dengan URL (contoh Binance ticker).',
-      };
-    }
+  const hard = checkHardToolPolicy(tool, args, meta);
+  if (hard.blocked) {
+    return { status: 'blocked', error: hard.error };
   }
 
   // Security permission check
@@ -255,4 +332,5 @@ module.exports = {
   convertActionToToolCallString,
   executeAction,
   executeApprovedTool,
+  checkHardToolPolicy,
 };

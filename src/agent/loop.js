@@ -1,5 +1,9 @@
 const { callLLM } = require('../providers');
-const { buildAgentSystemPrompt, parseAgentResponse, isRealtimeQuery } = require('./decision');
+const {
+  buildAgentSystemPrompt,
+  parseAgentResponse,
+  classifyIntent,
+} = require('./decision');
 const { validateAgentAction, executeAction } = require('./tool-executor');
 const { retrieveContext, indexVault } = require('../rag');
 
@@ -13,6 +17,9 @@ const MUTATING_VAULT_TOOLS = [
   'obsidian-organize',
 ];
 
+/** Max chars of tool output fed back into the LLM (keeps context small). */
+const MAX_TOOL_OUTPUT_CHARS = 4000;
+
 /**
  * Multi-step agent loop.
  * Returns either a final answer string OR a structured approval object:
@@ -25,12 +32,16 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   const agentName = config.agentName || 'Paijo';
   const userId = meta.userId || 'anonymous';
 
+  const intent = classifyIntent(userMessage);
+  console.log(
+    `[agent-loop] Intent: ${intent.type} (${intent.confidence}) skipRag=${intent.skipRag}`
+  );
+
   let ragContext = '';
   let ragUsed = false;
-  const realtimeMode = isRealtimeQuery(userMessage);
 
-  if (realtimeMode) {
-    console.log('[rag] Skip RAG — pertanyaan real-time (harga/berita/tanggal live)');
+  if (intent.skipRag) {
+    console.log(`[rag] Skip RAG — intent=${intent.type}`);
   } else {
     try {
       ragContext = retrieveContext(userMessage, 3);
@@ -40,12 +51,18 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     }
   }
 
-  let systemPrompt = buildAgentSystemPrompt(agentName, ragUsed, { realtimeMode });
-  if (ragContext && !realtimeMode) {
+  // Fast-path: pure time questions — no LLM tool loop needed for clock
+  // (still use LLM for natural phrasing would be nicer, but server time in prompt is enough;
+  // we let LLM answer with final using server time in system prompt)
+
+  let systemPrompt = buildAgentSystemPrompt(agentName, ragUsed, {
+    intent,
+    realtimeMode: intent.type === 'realtime',
+  });
+  if (ragContext && !intent.skipRag) {
     systemPrompt += `\n\n${ragContext}`;
   }
 
-  // Support continuation after approval
   const priorHistory = Array.isArray(meta.history) ? meta.history : [];
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -53,11 +70,10 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     { role: 'user', content: userMessage },
   ];
 
-  // If continuing after tool result
   if (meta.toolResult) {
     messages.push({
       role: 'user',
-      content: `Hasil eksekusi tool ${meta.toolResult.tool}:\n${meta.toolResult.output}`,
+      content: `Hasil eksekusi tool ${meta.toolResult.tool}:\n${truncateOutput(meta.toolResult.output)}`,
     });
   }
 
@@ -94,15 +110,40 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
     if (parsed.action === 'final') {
       console.log(`[agent-loop] Final answer reached at step ${step}`);
-      const vaultToolsUsed = toolsUsed.filter((t) => t.startsWith('obsidian-'));
-      const footer = buildSourceFooter(ragUsed, vaultToolsUsed);
+      const footer = buildSourceFooter({
+        ragUsed,
+        toolsUsed,
+        intent,
+      });
       return {
         status: 'answered',
         answer: `${parsed.reply}\n\n${footer}`,
+        intent,
+        toolsUsed,
       };
     }
 
     if (parsed.action === 'tool') {
+      // Soft policy: reject tools blocked by intent before execution
+      if (
+        Array.isArray(intent.blockTools) &&
+        intent.blockTools.includes(parsed.tool)
+      ) {
+        console.log(
+          `[agent-loop] Blocked tool "${parsed.tool}" by intent policy (${intent.type})`
+        );
+        messages.push({ role: 'assistant', content: rawResponse });
+        messages.push({
+          role: 'user',
+          content:
+            `Eksekusi Tool Ditolak: Tool "${parsed.tool}" tidak diizinkan untuk intent "${intent.type}". ` +
+            (intent.preferTools?.length
+              ? `Gunakan salah satu: ${intent.preferTools.join(', ')}.`
+              : 'Jawab final langsung jika memungkinkan.'),
+        });
+        continue;
+      }
+
       console.log(`[agent-loop] Executing tool: ${parsed.tool}`);
       toolsUsed.push(parsed.tool);
 
@@ -110,10 +151,11 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         ...meta,
         userId,
         userText: userMessage,
-        history: messages.slice(1), // exclude system
+        history: messages.slice(1),
         step,
         config,
         source: meta.source || 'agent',
+        intent,
       });
 
       if (result.status === 'approval_required') {
@@ -130,6 +172,7 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
             step,
             toolsUsed,
             ragUsed,
+            intent,
           },
         };
       }
@@ -152,7 +195,6 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         continue;
       }
 
-      // success — auto reindex vault if needed
       if (MUTATING_VAULT_TOOLS.includes(parsed.tool)) {
         try {
           indexVault();
@@ -161,7 +203,7 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         }
       }
 
-      const outputText = result.output || '(No output)';
+      const outputText = truncateOutput(result.output || '(No output)');
       messages.push({ role: 'assistant', content: rawResponse });
       messages.push({
         role: 'user',
@@ -172,20 +214,60 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
   return {
     status: 'error',
-    message: 'Maaf, batas maksimum langkah (max steps) tercapai sebelum mendapat jawaban akhir.',
+    message:
+      'Maaf, batas maksimum langkah (max steps) tercapai sebelum mendapat jawaban akhir.',
   };
 }
 
-function buildSourceFooter(ragContextInjected, vaultToolsUsed) {
+function truncateOutput(text) {
+  const s = String(text ?? '');
+  if (s.length <= MAX_TOOL_OUTPUT_CHARS) return s;
+  return (
+    s.slice(0, MAX_TOOL_OUTPUT_CHARS) +
+    `\n… [output dipotong ${s.length - MAX_TOOL_OUTPUT_CHARS} karakter]`
+  );
+}
+
+/**
+ * Consistent source footer based on tools actually used + RAG.
+ */
+function buildSourceFooter({ ragUsed, toolsUsed, intent }) {
+  const unique = [...new Set(toolsUsed || [])];
+  const vaultTools = unique.filter((t) => t.startsWith('obsidian-'));
+  const usedFetch = unique.includes('fetch');
+  const usedShell = unique.includes('shell');
+  const otherTools = unique.filter(
+    (t) => !t.startsWith('obsidian-') && t !== 'fetch' && t !== 'shell'
+  );
+
   const parts = [];
 
-  if (vaultToolsUsed.length > 0) {
-    const toolNames = [...new Set(vaultToolsUsed)].join(', ');
-    parts.push(`📂 **Sumber: Vault Obsidian** _(tools: ${toolNames})_`);
-  } else if (ragContextInjected) {
-    parts.push(`📂 **Sumber: Vault Obsidian (RAG)** _— konteks otomatis dari vault digunakan_`);
-  } else {
-    parts.push(`🌐 **Sumber: Pengetahuan Umum AI** _— tidak ada data dari vault yang digunakan_`);
+  if (vaultTools.length > 0) {
+    parts.push(`📂 **Vault** _(tools: ${vaultTools.join(', ')})_`);
+  } else if (ragUsed) {
+    parts.push(`📂 **Vault (RAG)**`);
+  }
+
+  if (usedFetch) {
+    parts.push(`🌐 **Fetch**`);
+  }
+  if (usedShell) {
+    parts.push(`💻 **Shell**`);
+  }
+  if (otherTools.length > 0) {
+    parts.push(`🔧 **Tool:** ${otherTools.join(', ')}`);
+  }
+
+  if (parts.length === 0) {
+    if (intent && (intent.type === 'time' || intent.type === 'status')) {
+      parts.push(
+        intent.type === 'time'
+          ? `🕐 **Waktu server**`
+          : `📊 **Status provider**`
+      );
+    } else {
+      parts.push(`🧠 **AI** _— tanpa vault/fetch_`);
+    }
   }
 
   return `---\n${parts.join(' · ')}`;
@@ -193,4 +275,7 @@ function buildSourceFooter(ragContextInjected, vaultToolsUsed) {
 
 module.exports = {
   runAgentLoop,
+  buildSourceFooter,
+  truncateOutput,
+  classifyIntent,
 };
