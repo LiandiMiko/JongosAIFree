@@ -1,5 +1,5 @@
 const { callLLM } = require('../providers');
-const { buildAgentSystemPrompt, parseAgentResponse } = require('./decision');
+const { buildAgentSystemPrompt, parseAgentResponse, isRealtimeQuery } = require('./decision');
 const { validateAgentAction, executeAction } = require('./tool-executor');
 const { retrieveContext, indexVault } = require('../rag');
 
@@ -27,16 +27,21 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
   let ragContext = '';
   let ragUsed = false;
+  const realtimeMode = isRealtimeQuery(userMessage);
 
-  try {
-    ragContext = retrieveContext(userMessage, 3);
-    if (ragContext) ragUsed = true;
-  } catch (err) {
-    console.log('[rag] Skipped context retrieval:', err.message);
+  if (realtimeMode) {
+    console.log('[rag] Skip RAG — pertanyaan real-time (harga/berita/tanggal live)');
+  } else {
+    try {
+      ragContext = retrieveContext(userMessage, 3);
+      if (ragContext) ragUsed = true;
+    } catch (err) {
+      console.log('[rag] Skipped context retrieval:', err.message);
+    }
   }
 
-  let systemPrompt = buildAgentSystemPrompt(agentName, ragUsed);
-  if (ragContext) {
+  let systemPrompt = buildAgentSystemPrompt(agentName, ragUsed, { realtimeMode });
+  if (ragContext && !realtimeMode) {
     systemPrompt += `\n\n${ragContext}`;
   }
 

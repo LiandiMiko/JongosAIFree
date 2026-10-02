@@ -135,6 +135,21 @@ async function executeAction(parsed, meta = {}) {
   const toolCallString = convertActionToToolCallString(parsed);
   const userId = meta.userId || meta.user || 'anonymous';
 
+  // Jangan pakai shell sebagai pengganti fetch (curl/wget/harga web)
+  if (tool === 'shell') {
+    const cmd = String(args.command || toolCallString || '').toLowerCase();
+    if (
+      /\b(curl|wget|http:\/\/|https:\/\/)\b/.test(cmd) ||
+      /binance|coingecko|coinmarketcap|ticker|ondousdt|taousdt/.test(cmd)
+    ) {
+      return {
+        status: 'blocked',
+        error:
+          '[POLICY] Jangan pakai shell untuk akses web/harga. Gunakan tool fetch dengan URL (contoh Binance ticker).',
+      };
+    }
+  }
+
   // Security permission check
   const perm = checkPermission(toolCallString);
   if (!perm.allowed) {
