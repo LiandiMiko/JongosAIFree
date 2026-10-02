@@ -192,9 +192,12 @@ async function callGemini(messages, model, options = {}) {
           continue;
         }
 
-        throw new Error(
+        const err = new Error(
           `Gemini API error (${status}): ${data?.error?.message || 'Unknown error'}`
         );
+        err.response = error.response;
+        err.statusCode = status;
+        throw err;
       }
 
       throw new Error(`Gagal menghubungi Gemini: ${error.message}`);

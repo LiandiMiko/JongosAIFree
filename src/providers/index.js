@@ -11,9 +11,13 @@ const { callLLM7 } = require('./llm7');
 const { callLlamaCpp } = require('./llamacpp');
 
 const modelHealthCache = new Map();
-const MODEL_COOLDOWN_MS = 10 * 60 * 1000;
+const MODEL_COOLDOWN_MS = 10 * 60 * 1000; // 404 / unavailable
+const TRANSIENT_COOLDOWN_MS = 5 * 60 * 1000; // 503 high demand
 const providerCooldown = new Map();
 const PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** Model terakhir yang sukses — diprioritaskan di call berikutnya */
+let lastGoodModel = null; // { provider, model }
 
 function isModelUnhealthy(provider, model) {
   const key = `${provider}/${model}`;
@@ -43,6 +47,35 @@ function isProviderOnCooldown(provider) {
 function markProviderCooldown(provider, ms = PROVIDER_COOLDOWN_MS) {
   providerCooldown.set(provider, Date.now() + ms);
 }
+
+function extractStatusCode(error) {
+  if (error?.statusCode) return Number(error.statusCode);
+  if (error?.response?.status) return Number(error.response.status);
+  const msg = String(error?.message || '');
+  const m = msg.match(/\((\d{3})\)/);
+  if (m) return Number(m[1]);
+  const m2 = msg.match(/\b(429|402|503|502|504|401|403|404)\b/);
+  if (m2) return Number(m2[1]);
+  return null;
+}
+
+function isTransientError(error) {
+  const status = extractStatusCode(error);
+  const msg = String(error?.message || '').toLowerCase();
+  return (
+    status === 503 ||
+    status === 502 ||
+    status === 504 ||
+    error?.code === 'ECONNABORTED' ||
+    error?.code === 'ETIMEDOUT' ||
+    msg.includes('timeout') ||
+    msg.includes('high demand') ||
+    msg.includes('currently experiencing') ||
+    msg.includes('service is currently unavailable') ||
+    msg.includes('temporarily')
+  );
+}
+
 
 /**
  * Hanya provider yang punya API key di .env yang boleh dipakai.
@@ -238,14 +271,39 @@ async function callLLM(messages, config, options = {}) {
     if (!models.length) continue;
 
     let providerModels = [...models];
+    // Prefer model yang baru sukses (hindari retry model 503 tiap step)
+    if (
+      lastGoodModel &&
+      lastGoodModel.provider === provider &&
+      !isModelUnhealthy(provider, lastGoodModel.model)
+    ) {
+      const g = lastGoodModel.model;
+      providerModels = [g, ...models.filter((m) => m !== g)];
+    }
     if (provider === primaryProvider && preferredModel) {
-      if (models.includes(preferredModel)) {
-        providerModels = [
-          preferredModel,
-          ...models.filter((m) => m !== preferredModel),
-        ];
+      if (!isModelUnhealthy(provider, preferredModel)) {
+        if (models.includes(preferredModel) || preferredModel === lastGoodModel?.model) {
+          providerModels = [
+            preferredModel,
+            ...providerModels.filter((m) => m !== preferredModel),
+          ];
+        } else if (!isModelUnhealthy(provider, preferredModel)) {
+          // coba preferred sekali, tapi lastGood tetap di depan jika beda
+          if (lastGoodModel?.provider === provider && lastGoodModel.model !== preferredModel) {
+            providerModels = [
+              lastGoodModel.model,
+              preferredModel,
+              ...models.filter((m) => m !== preferredModel && m !== lastGoodModel.model),
+            ];
+          } else {
+            providerModels = [preferredModel, ...models.filter((m) => m !== preferredModel)];
+          }
+        }
       } else {
-        providerModels = [preferredModel, ...models];
+        // preferred sedang cooldown → skip, pakai lastGood / sisa list
+        console.log(
+          `[llm] Skip preferred ${provider}/${preferredModel} (cooldown)`
+        );
       }
     }
 
@@ -264,19 +322,27 @@ async function callLLM(messages, config, options = {}) {
 
   for (const { provider, model } of attemptOrder) {
     if (deadProviders.has(provider) || isProviderOnCooldown(provider)) continue;
-    if (isModelUnhealthy(provider, model)) continue;
+    if (isModelUnhealthy(provider, model)) {
+      console.log(`[llm] Skipping ${provider}/${model} (masih cooldown)`);
+      continue;
+    }
 
     console.log(`[llm] Trying provider: ${provider} | model: ${model}`);
 
     try {
-      if (provider === 'llm7') return await callLLM7(messages, model, options);
-      if (provider === 'sambanova') return await callSambaNova(messages, model, options);
-      if (provider === 'groq') return await callGroq(messages, model, options);
-      if (provider === 'llamacpp') return await callLlamaCpp(messages, model, options);
-      if (provider === 'gemini') return await callGemini(messages, model, options);
-      if (provider === 'openrouter') return await callOpenRouter(messages, model, options);
-      if (provider === 'mistral') return await callMistral(messages, model, options);
-      throw new Error(`Provider ${provider} belum memiliki adapter.`);
+      let text;
+      if (provider === 'llm7') text = await callLLM7(messages, model, options);
+      else if (provider === 'sambanova') text = await callSambaNova(messages, model, options);
+      else if (provider === 'groq') text = await callGroq(messages, model, options);
+      else if (provider === 'llamacpp') text = await callLlamaCpp(messages, model, options);
+      else if (provider === 'gemini') text = await callGemini(messages, model, options);
+      else if (provider === 'openrouter') text = await callOpenRouter(messages, model, options);
+      else if (provider === 'mistral') text = await callMistral(messages, model, options);
+      else throw new Error(`Provider ${provider} belum memiliki adapter.`);
+
+      lastGoodModel = { provider, model };
+      console.log(`[llm] ✓ pakai ${provider}/${model} (sticky untuk request berikutnya)`);
+      return text;
     } catch (error) {
       lastError = error;
       const status = error.response?.status;
@@ -318,18 +384,16 @@ async function callLLM(messages, config, options = {}) {
         continue;
       }
 
-      const isTransient =
-        status === 503 ||
-        status === 502 ||
-        status === 504 ||
-        error.code === 'ECONNABORTED' ||
-        error.code === 'ETIMEDOUT' ||
-        msg.includes('timeout') ||
-        msg.includes('service is currently unavailable');
-
-      if (isTransient) {
-        markModelUnhealthy(provider, model, 60 * 1000);
-        console.log(`[llm] ${provider}/${model} unhealthy → cooldown 60s`);
+      if (isTransientError(error)) {
+        const code = extractStatusCode(error) || status || 'transient';
+        markModelUnhealthy(provider, model, TRANSIENT_COOLDOWN_MS);
+        // Jangan pakai model ini sebagai preferred lagi di step agent berikutnya
+        if (lastGoodModel && lastGoodModel.provider === provider && lastGoodModel.model === model) {
+          lastGoodModel = null;
+        }
+        console.log(
+          `[llm] ${provider}/${model} high-demand/503 (${code}) → skip ${TRANSIENT_COOLDOWN_MS / 1000}s, coba model lain...`
+        );
         continue;
       }
 
