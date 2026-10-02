@@ -96,7 +96,21 @@ console.log(`  Model    : ${config.model}`);
 console.log('');
 
 loadSkills();
-startTelegram(config);
-startWebUI(config);
 
-console.log('\n  All systems go.\n');
+async function boot() {
+  try {
+    const { warmupProviders } = require('./src/providers');
+    await warmupProviders(config);
+  } catch (e) {
+    console.warn('[warmup] error:', e.message);
+  }
+
+  startTelegram(config);
+  startWebUI(config);
+  console.log('\n  All systems go.\n');
+}
+
+boot().catch((err) => {
+  console.error('Boot failed:', err);
+  process.exit(1);
+});

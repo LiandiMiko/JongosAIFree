@@ -1,0 +1,188 @@
+diff --git a/index.js b/index.js
+index 6629f9c..d778bbc 100644
+--- a/index.js
++++ b/index.js
+@@ -96,7 +96,21 @@ console.log(`  Model    : ${config.model}`);
+ console.log('');
+ 
+ loadSkills();
+-startTelegram(config);
+-startWebUI(config);
+ 
+-console.log('\n  All systems go.\n');
++async function boot() {
++  try {
++    const { warmupProviders } = require('./src/providers');
++    await warmupProviders(config);
++  } catch (e) {
++    console.warn('[warmup] error:', e.message);
++  }
++
++  startTelegram(config);
++  startWebUI(config);
++  console.log('\n  All systems go.\n');
++}
++
++boot().catch((err) => {
++  console.error('Boot failed:', err);
++  process.exit(1);
++});
+diff --git a/src/providers/index.js b/src/providers/index.js
+index 26e20e7..b6b53fe 100644
+--- a/src/providers/index.js
++++ b/src/providers/index.js
+@@ -416,10 +416,154 @@ async function callLLM(messages, config, options = {}) {
+   throw lastError || new Error('Semua provider AI sedang tidak tersedia.');
+ }
+ 
++
++/**
++ * Probe provider/model saat startup.
++ * Model yang gagal → cooldown; yang sukses → lastGoodModel + ready list.
++ * Env: WARMUP_SKIP=1 untuk lewati; WARMUP_ALL_MODELS=1 untuk test semua model (default: stop per-provider setelah 1 sukses).
++ */
++async function warmupProviders(config = {}) {
++  if (String(process.env.WARMUP_SKIP || '').trim() === '1') {
++    console.log('[warmup] dilewati (WARMUP_SKIP=1)');
++    return { ready: [], failed: [], skipped: true };
++  }
++
++  const probeAllModels = String(process.env.WARMUP_ALL_MODELS || '').trim() === '1';
++  const primary = (config.provider || 'gemini').toLowerCase();
++  const preferredModel = normalizeModelName(config.model);
++
++  const providerOrder = [];
++  if (hasProviderKey(primary)) providerOrder.push(primary);
++  for (const p of Object.keys(PROVIDERS)) {
++    if (p !== primary && hasProviderKey(p)) providerOrder.push(p);
++  }
++
++  if (!providerOrder.length) {
++    console.log('[warmup] tidak ada provider ber-key — skip');
++    return { ready: [], failed: [], skipped: true };
++  }
++
++  const messages = [{ role: 'user', content: 'Reply with exactly one word: ok' }];
++  const ready = [];
++  const failed = [];
++
++  console.log('[warmup] mengecek model yang ready...');
++
++  for (const provider of providerOrder) {
++    let models = [...getModels(provider)];
++    if (provider === primary && preferredModel) {
++      models = [
++        preferredModel,
++        ...models.filter((m) => m !== preferredModel),
++      ];
++    }
++
++    let providerHasReady = false;
++
++    for (const model of models) {
++      if (isModelUnhealthy(provider, model) || isRateLimited(provider, model)) {
++        console.log(`[warmup] skip ${provider}/${model} (sudah cooldown)`);
++        continue;
++      }
++
++      process.stdout.write(`[warmup] test ${provider}/${model} ... `);
++      try {
++        let text;
++        if (provider === 'llm7') text = await callLLM7(messages, model, {});
++        else if (provider === 'sambanova') text = await callSambaNova(messages, model, {});
++        else if (provider === 'groq') text = await callGroq(messages, model, {});
++        else if (provider === 'llamacpp') text = await callLlamaCpp(messages, model, {});
++        else if (provider === 'gemini') text = await callGemini(messages, model, {});
++        else if (provider === 'openrouter') text = await callOpenRouter(messages, model, {});
++        else if (provider === 'mistral') text = await callMistral(messages, model, {});
++        else throw new Error('no adapter');
++
++        lastGoodModel = { provider, model };
++        ready.push({ provider, model });
++        providerHasReady = true;
++        console.log('OK');
++
++        // Default: 1 sukses per provider cukup (hemat kuota)
++        if (!probeAllModels) break;
++      } catch (error) {
++        const msg = String(error.message || error).slice(0, 120);
++        failed.push({ provider, model, error: msg });
++        console.log('FAIL');
++
++        if (isPaymentOrQuotaError(error)) {
++          markProviderCooldown(provider);
++          try {
++            markRateLimited(provider, model, { lastError: msg });
++          } catch (_) {}
++          console.log(`[warmup] ${provider} quota/402 → skip sisa model provider ini`);
++          break;
++        }
++
++        if (isModelUnavailable(error) || isTransientError(error)) {
++          const ms = isTransientError(error) ? TRANSIENT_COOLDOWN_MS : MODEL_COOLDOWN_MS;
++          markModelUnhealthy(provider, model, ms);
++        } else {
++          markModelUnhealthy(provider, model, TRANSIENT_COOLDOWN_MS);
++        }
++      }
++    }
++
++    if (!providerHasReady) {
++      console.log(`[warmup] ${provider}: tidak ada model ready`);
++    }
++  }
++
++  console.log('');
++  if (ready.length) {
++    console.log('[warmup] ready:');
++    for (const r of ready) {
++      const mark =
++        lastGoodModel &&
++        lastGoodModel.provider === r.provider &&
++        lastGoodModel.model === r.model
++          ? ' ← default'
++          : '';
++      console.log(`  ✓ ${r.provider}/${r.model}${mark}`);
++    }
++  } else {
++    console.log('[warmup] ⚠ tidak ada model yang merespons');
++  }
++  if (failed.length) {
++    console.log('[warmup] gagal / cooldown:');
++    for (const f of failed) {
++      console.log(`  ✗ ${f.provider}/${f.model}`);
++    }
++  }
++  console.log('');
++
++  return { ready, failed, skipped: false };
++}
++
++function getLastGoodModel() {
++  return lastGoodModel ? { ...lastGoodModel } : null;
++}
++
++function getReadyModelsSnapshot() {
++  const ready = [];
++  for (const provider of Object.keys(PROVIDERS)) {
++    if (!hasProviderKey(provider)) continue;
++    for (const model of getModels(provider)) {
++      if (!isModelUnhealthy(provider, model) && !isRateLimited(provider, model)) {
++        ready.push({ provider, model });
++      }
++    }
++  }
++  return ready;
++}
++
++
+ module.exports = {
+   callLLM,
+   PROVIDERS,
+   getModels,
+   hasProviderKey,
+   normalizeModelName,
++  warmupProviders,
++  getLastGoodModel,
++  getReadyModelsSnapshot,
+ };
