@@ -48,6 +48,8 @@ function buildAgentSystemPrompt(agentName = 'Paijo', ragContextAvailable = false
     '4. JANGAN pernah mengarang isi note yang tidak ada. Cari atau baca dulu lewat tool!',
     '5. Hanya jawab dari pengetahuan umum jika pertanyaan bersifat umum dan TIDAK berkaitan dengan vault atau file user.',
     '6. Jika vault tidak memiliki data yang relevan, katakan terus terang bahwa data tidak ditemukan di vault, baru boleh tambahkan penjelasan dari pengetahuan umum.',
+    '7. JANGAN gunakan tool Obsidian untuk pertanyaan tentang status API, token, kuota, provider, usage LLM, atau kesehatan agent. Itu bukan isi vault — jawab bahwa user harus pakai /status atau tanya status token/provider.',
+    '8. Jangan mengarang isi note Fail2ban/server hanya karena user bilang "status" — bedakan status agent/API vs status layanan di vault.',
   ].join('\n');
 }
 

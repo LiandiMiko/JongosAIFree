@@ -147,6 +147,13 @@ async function continueAgentAfterApproval(execResult, config = {}, meta = {}) {
  * Returns a plain string reply.
  */
 async function processMessage(userId, text, config) {
+  try {
+    const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
+    if (isProviderStatusQuery(text)) {
+      return formatProviderStatus({ html: false });
+    }
+  } catch (_) {}
+
   const result = await runAgent(text, config, {
     userId,
     source: 'webui',

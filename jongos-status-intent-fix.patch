@@ -1,0 +1,258 @@
+diff --git a/src/agent-loop.js b/src/agent-loop.js
+index ef4c605..56ba915 100644
+--- a/src/agent-loop.js
++++ b/src/agent-loop.js
+@@ -147,6 +147,13 @@ async function continueAgentAfterApproval(execResult, config = {}, meta = {}) {
+  * Returns a plain string reply.
+  */
+ async function processMessage(userId, text, config) {
++  try {
++    const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
++    if (isProviderStatusQuery(text)) {
++      return formatProviderStatus({ html: false });
++    }
++  } catch (_) {}
++
+   const result = await runAgent(text, config, {
+     userId,
+     source: 'webui',
+diff --git a/src/agent/decision.js b/src/agent/decision.js
+index df5d4c9..db245fd 100644
+--- a/src/agent/decision.js
++++ b/src/agent/decision.js
+@@ -48,6 +48,8 @@ function buildAgentSystemPrompt(agentName = 'Paijo', ragContextAvailable = false
+     '4. JANGAN pernah mengarang isi note yang tidak ada. Cari atau baca dulu lewat tool!',
+     '5. Hanya jawab dari pengetahuan umum jika pertanyaan bersifat umum dan TIDAK berkaitan dengan vault atau file user.',
+     '6. Jika vault tidak memiliki data yang relevan, katakan terus terang bahwa data tidak ditemukan di vault, baru boleh tambahkan penjelasan dari pengetahuan umum.',
++    '7. JANGAN gunakan tool Obsidian untuk pertanyaan tentang status API, token, kuota, provider, usage LLM, atau kesehatan agent. Itu bukan isi vault — jawab bahwa user harus pakai /status atau tanya status token/provider.',
++    '8. Jangan mengarang isi note Fail2ban/server hanya karena user bilang "status" — bedakan status agent/API vs status layanan di vault.',
+   ].join('\n');
+ }
+ 
+diff --git a/src/status-report.js b/src/status-report.js
+new file mode 100644
+index 0000000..0b478a5
+--- /dev/null
++++ b/src/status-report.js
+@@ -0,0 +1,149 @@
++/**
++ * Shared LLM provider status report for Telegram /status and natural queries.
++ */
++
++/** Deteksi pertanyaan status API / token / kuota (bukan status server di vault) */
++function isProviderStatusQuery(text) {
++  const t = String(text || '').trim().toLowerCase();
++  if (!t) return false;
++
++  if (
++    t === '/status' ||
++    t === 'status' ||
++    t === 'cek status' ||
++    t === 'status?' ||
++    t.startsWith('/status')
++  ) {
++    return true;
++  }
++
++  const aboutProvider =
++    /\b(token|api|provider|kuota|quota|llm|gemini|groq|key|pemakaian|usage|request|sambanova|openrouter|mistral)\b/i.test(
++      t
++    );
++
++  const asksStatus =
++    /\b(status|cek|sisa|berapa|info|lihat|tampilkan|show)\b/i.test(t);
++
++  if (aboutProvider && asksStatus) return true;
++
++  if (
++    /\bstatus\s+(token|api|provider|llm|kuota|quota|key)\b/i.test(t) ||
++    /\b(token|api|provider|kuota|quota)\s+status\b/i.test(t) ||
++    /\bcek\s+(token|kuota|quota|provider|api|usage)\b/i.test(t) ||
++    /\b(sisa|berapa)\s+(kuota|quota|request|token)\b/i.test(t)
++  ) {
++    return true;
++  }
++
++  return false;
++}
++
++function listConfiguredProviders() {
++  try {
++    const { hasProviderKey, PROVIDERS } = require('./providers');
++    return Object.keys(PROVIDERS || {}).filter((p) => {
++      try {
++        return hasProviderKey(p);
++      } catch {
++        return false;
++      }
++    });
++  } catch {
++    return [];
++  }
++}
++
++/**
++ * @param {{ html?: boolean }} opts
++ * @returns {string}
++ */
++function formatProviderStatus(opts = {}) {
++  const html = opts.html !== false;
++  let all = [];
++  try {
++    const { getAllProviderStatus } = require('./llm-status');
++    all = getAllProviderStatus() || [];
++  } catch {
++    all = [];
++  }
++
++  let PROVIDERS = {};
++  try {
++    PROVIDERS = require('./providers').PROVIDERS || {};
++  } catch {
++    PROVIDERS = {};
++  }
++
++  const configured = listConfiguredProviders();
++
++  const esc = (v) => {
++    const s = String(v == null ? '' : v);
++    if (!html) return s;
++    return s
++      .replace(/&/g, '&amp;')
++      .replace(/</g, '&lt;')
++      .replace(/>/g, '&gt;');
++  };
++  const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
++  const b = (s) => (html ? `<b>${s}</b>` : `**${s}**`);
++  const code = (s) => (html ? `<code>${s}</code>` : `\`${s}\``);
++
++  const lines = [];
++  lines.push(b('📊 LLM / Provider Status'));
++  lines.push('');
++
++  if (configured.length) {
++    lines.push(b('Key di .env:'));
++    for (const p of configured) {
++      const name = PROVIDERS[p]?.name || p;
++      lines.push(`• ${esc(name)} (${code(p)})`);
++    }
++    lines.push('');
++  } else {
++    lines.push('⚠️ Tidak ada provider dengan API key di .env (atau modul providers belum load).');
++    lines.push('');
++  }
++
++  if (!all.length) {
++    lines.push('Belum ada data usage. Kirim pesan dulu supaya terisi.');
++    return lines.join('\n');
++  }
++
++  lines.push(b('Usage (lokal):'));
++  lines.push('');
++
++  for (const e of all) {
++    const u = e.usage || {};
++    const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
++    lines.push(b(esc(e.provider) + ' / ' + esc(e.model) + esc(keyLabel)));
++    lines.push('• Status        : ' + code(esc(e.status)));
++    lines.push('• Requests      : ' + fmt(u.requests));
++    lines.push('• Input tokens  : ' + fmt(u.inputTokens));
++    lines.push('• Output tokens : ' + fmt(u.outputTokens));
++    lines.push('• Total tokens  : ' + fmt(u.totalTokens));
++    if (e.limit !== null && e.limit !== undefined) {
++      lines.push('• Quota limit   : ' + fmt(e.limit));
++      lines.push('• Quota remain  : ' + fmt(e.remaining));
++      lines.push('• Quota used    : ' + fmt(e.used));
++    }
++    if (e.retryAfter) lines.push('• Retry after   : ' + esc(e.retryAfter) + 's');
++    if (e.resetAt) lines.push('• Reset at      : ' + esc(e.resetAt));
++    if (e.lastError) lines.push('• Last error    : ' + esc(e.lastError));
++    lines.push('');
++  }
++
++  lines.push(
++    html
++      ? '<i>Catatan: angka request = counter lokal agent, bukan dashboard resmi provider.</i>'
++      : '_Catatan: angka request = counter lokal agent, bukan dashboard resmi provider._'
++  );
++
++  return lines.join('\n');
++}
++
++module.exports = {
++  isProviderStatusQuery,
++  formatProviderStatus,
++  listConfiguredProviders,
++};
+diff --git a/src/telegram.js b/src/telegram.js
+index 71253bd..a2ecba1 100644
+--- a/src/telegram.js
++++ b/src/telegram.js
+@@ -50,6 +50,11 @@ function needsAgentLoop(text) {
+   if (!t) return false;
+   // Slash command
+   if (t.startsWith('/')) return false;
++  // Status API/token → jangan masuk agent/vault
++  try {
++    const { isProviderStatusQuery } = require('./status-report');
++    if (isProviderStatusQuery(t)) return false;
++  } catch (_) {}
+   // Trigger words
+   return AGENT_TRIGGERS.some(re => re.test(t));
+ }
+@@ -161,50 +166,14 @@ function startTelegram(config) {
+     const text = ctx.message.text;
+     console.log('[telegram] MSG from', userId, '→', JSON.stringify(text));
+ 
+-    // /status already wrapped
+-    // === /status command intercept (before LLM) ===
++    // === Provider status intercept (/status + natural language) ===
+     try {
+-      if (text.trim() === '/status') {
+-        const { getAllProviderStatus } = require('./llm-status');
+-        const all = getAllProviderStatus();
+-
+-        if (!all.length) {
+-          await ctx.reply('📊 Belum ada data usage. Coba kirim pesan dulu.');
+-          return;
+-        }
+-
+-        const esc = (v) => String(v == null ? '' : v)
+-          .replace(/&/g, '&amp;')
+-          .replace(/</g, '&lt;')
+-          .replace(/>/g, '&gt;');
+-
+-        const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
+-        const lines = ['📊 <b>LLM Usage Status</b>', ''];
+-
+-        for (const e of all) {
+-          const u = e.usage || {};
+-          const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
+-          lines.push('<b>' + esc(e.provider) + ' / ' + esc(e.model) + esc(keyLabel) + '</b>');
+-          lines.push('• Status        : <code>' + esc(e.status) + '</code>');
+-          lines.push('• Requests      : ' + fmt(u.requests));
+-          lines.push('• Input tokens  : ' + fmt(u.inputTokens));
+-          lines.push('• Output tokens : ' + fmt(u.outputTokens));
+-          lines.push('• Total tokens  : ' + fmt(u.totalTokens));
+-          if (e.limit !== null && e.limit !== undefined) {
+-            lines.push('• Quota limit   : ' + fmt(e.limit));
+-            lines.push('• Quota remain  : ' + fmt(e.remaining));
+-            lines.push('• Quota used    : ' + fmt(e.used));
+-          }
+-          if (e.retryAfter) lines.push('• Retry after   : ' + esc(e.retryAfter) + 's');
+-          if (e.resetAt)    lines.push('• Reset at      : ' + esc(e.resetAt));
+-          if (e.lastError)  lines.push('• Last error    : ' + esc(e.lastError));
+-          lines.push('');
+-        }
+-
+-        await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
++      const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
++      if (isProviderStatusQuery(text)) {
++        const report = formatProviderStatus({ html: true });
++        await ctx.reply(report, { parse_mode: 'HTML' });
+         return;
+       }
+-
+     } catch (e) {
+       console.error('[telegram] /status error:', e.message);
+       await ctx.reply('❌ /status error: ' + e.message).catch(() => {});

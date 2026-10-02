@@ -50,6 +50,11 @@ function needsAgentLoop(text) {
   if (!t) return false;
   // Slash command
   if (t.startsWith('/')) return false;
+  // Status API/token → jangan masuk agent/vault
+  try {
+    const { isProviderStatusQuery } = require('./status-report');
+    if (isProviderStatusQuery(t)) return false;
+  } catch (_) {}
   // Trigger words
   return AGENT_TRIGGERS.some(re => re.test(t));
 }
@@ -161,50 +166,14 @@ function startTelegram(config) {
     const text = ctx.message.text;
     console.log('[telegram] MSG from', userId, '→', JSON.stringify(text));
 
-    // /status already wrapped
-    // === /status command intercept (before LLM) ===
+    // === Provider status intercept (/status + natural language) ===
     try {
-      if (text.trim() === '/status') {
-        const { getAllProviderStatus } = require('./llm-status');
-        const all = getAllProviderStatus();
-
-        if (!all.length) {
-          await ctx.reply('📊 Belum ada data usage. Coba kirim pesan dulu.');
-          return;
-        }
-
-        const esc = (v) => String(v == null ? '' : v)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-
-        const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
-        const lines = ['📊 <b>LLM Usage Status</b>', ''];
-
-        for (const e of all) {
-          const u = e.usage || {};
-          const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
-          lines.push('<b>' + esc(e.provider) + ' / ' + esc(e.model) + esc(keyLabel) + '</b>');
-          lines.push('• Status        : <code>' + esc(e.status) + '</code>');
-          lines.push('• Requests      : ' + fmt(u.requests));
-          lines.push('• Input tokens  : ' + fmt(u.inputTokens));
-          lines.push('• Output tokens : ' + fmt(u.outputTokens));
-          lines.push('• Total tokens  : ' + fmt(u.totalTokens));
-          if (e.limit !== null && e.limit !== undefined) {
-            lines.push('• Quota limit   : ' + fmt(e.limit));
-            lines.push('• Quota remain  : ' + fmt(e.remaining));
-            lines.push('• Quota used    : ' + fmt(e.used));
-          }
-          if (e.retryAfter) lines.push('• Retry after   : ' + esc(e.retryAfter) + 's');
-          if (e.resetAt)    lines.push('• Reset at      : ' + esc(e.resetAt));
-          if (e.lastError)  lines.push('• Last error    : ' + esc(e.lastError));
-          lines.push('');
-        }
-
-        await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+      const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
+      if (isProviderStatusQuery(text)) {
+        const report = formatProviderStatus({ html: true });
+        await ctx.reply(report, { parse_mode: 'HTML' });
         return;
       }
-
     } catch (e) {
       console.error('[telegram] /status error:', e.message);
       await ctx.reply('❌ /status error: ' + e.message).catch(() => {});
