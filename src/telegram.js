@@ -170,7 +170,8 @@ function startTelegram(config) {
     try {
       const { isProviderStatusQuery, formatProviderStatus } = require('./status-report');
       if (isProviderStatusQuery(text)) {
-        const report = formatProviderStatus({ html: true });
+        const showAll = /\ball\b/i.test(text) || /\bsemua\b/i.test(text);
+        const report = formatProviderStatus({ html: true, showAll });
         await ctx.reply(report, { parse_mode: 'HTML' });
         return;
       }

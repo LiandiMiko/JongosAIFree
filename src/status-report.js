@@ -55,11 +55,14 @@ function listConfiguredProviders() {
 }
 
 /**
- * @param {{ html?: boolean }} opts
+ * @param {{ html?: boolean, showAll?: boolean }} opts
+ *   showAll: true → tampilkan juga usage provider tanpa key (histori)
  * @returns {string}
  */
 function formatProviderStatus(opts = {}) {
   const html = opts.html !== false;
+  const showAll = opts.showAll === true;
+
   let all = [];
   try {
     const { getAllProviderStatus } = require('./llm-status');
@@ -76,6 +79,25 @@ function formatProviderStatus(opts = {}) {
   }
 
   const configured = listConfiguredProviders();
+  const configuredSet = new Set(configured.map((p) => String(p).toLowerCase()));
+
+  const activeUsage = [];
+  const hiddenUsage = [];
+  for (const e of all) {
+    const p = String(e.provider || '').toLowerCase();
+    if (!configured.length || configuredSet.has(p) || showAll) {
+      activeUsage.push(e);
+    } else {
+      hiddenUsage.push(e);
+    }
+  }
+
+  // Sort: configured providers first, then by requests desc
+  activeUsage.sort((a, b) => {
+    const ra = Number(a.usage?.requests || 0);
+    const rb = Number(b.usage?.requests || 0);
+    return rb - ra;
+  });
 
   const esc = (v) => {
     const s = String(v == null ? '' : v);
@@ -88,36 +110,52 @@ function formatProviderStatus(opts = {}) {
   const fmt = (n) => Number(n || 0).toLocaleString('id-ID');
   const b = (s) => (html ? `<b>${s}</b>` : `**${s}**`);
   const code = (s) => (html ? `<code>${s}</code>` : `\`${s}\``);
+  const i = (s) => (html ? `<i>${s}</i>` : `_${s}_`);
 
   const lines = [];
   lines.push(b('📊 LLM / Provider Status'));
   lines.push('');
 
   if (configured.length) {
-    lines.push(b('Key di .env:'));
+    lines.push(b('Key di .env (aktif):'));
     for (const p of configured) {
       const name = PROVIDERS[p]?.name || p;
-      lines.push(`• ${esc(name)} (${code(p)})`);
+      const providerEntries = activeUsage.filter(
+        (e) => String(e.provider || '').toLowerCase() === p.toLowerCase()
+      );
+      const totalReq = providerEntries.reduce(
+        (sum, e) => sum + Number(e.usage?.requests || 0),
+        0
+      );
+      const suffix = totalReq ? ` — ${fmt(totalReq)} req` : '';
+      lines.push(`• ${esc(name)} (${code(p)})${suffix}`);
     }
     lines.push('');
   } else {
-    lines.push('⚠️ Tidak ada provider dengan API key di .env (atau modul providers belum load).');
+    lines.push('⚠️ Tidak ada provider dengan API key di .env.');
     lines.push('');
   }
 
-  if (!all.length) {
-    lines.push('Belum ada data usage. Kirim pesan dulu supaya terisi.');
+  if (!activeUsage.length) {
+    lines.push('Belum ada data usage untuk provider aktif.');
+    if (hiddenUsage.length) {
+      lines.push(
+        i(
+          `Ada ${hiddenUsage.length} entri histori provider lain (tanpa key di .env) — disembunyikan.`
+        )
+      );
+    }
     return lines.join('\n');
   }
 
-  lines.push(b('Usage (lokal):'));
+  lines.push(b('Usage per model (lokal):'));
   lines.push('');
 
-  for (const e of all) {
+  for (const e of activeUsage) {
     const u = e.usage || {};
     const keyLabel = e.keyId != null ? ` (key #${e.keyId})` : '';
     lines.push(b(esc(e.provider) + ' / ' + esc(e.model) + esc(keyLabel)));
-    lines.push('• Status        : ' + code(esc(e.status)));
+    lines.push('• Status        : ' + code(esc(e.status || 'unknown')));
     lines.push('• Requests      : ' + fmt(u.requests));
     lines.push('• Input tokens  : ' + fmt(u.inputTokens));
     lines.push('• Output tokens : ' + fmt(u.outputTokens));
@@ -133,10 +171,20 @@ function formatProviderStatus(opts = {}) {
     lines.push('');
   }
 
+  if (hiddenUsage.length && !showAll) {
+    const names = [
+      ...new Set(hiddenUsage.map((e) => e.provider).filter(Boolean)),
+    ].join(', ');
+    lines.push(
+      i(
+        `Histori disembunyikan: ${names} (${hiddenUsage.length} entri, tidak ada key di .env). Ketik /status all untuk lihat semua.`
+      )
+    );
+    lines.push('');
+  }
+
   lines.push(
-    html
-      ? '<i>Catatan: angka request = counter lokal agent, bukan dashboard resmi provider.</i>'
-      : '_Catatan: angka request = counter lokal agent, bukan dashboard resmi provider._'
+    i('Catatan: angka request = counter lokal agent, bukan dashboard resmi provider.')
   );
 
   return lines.join('\n');
