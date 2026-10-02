@@ -1,3 +1,4 @@
+const axios = require('axios');
 const { callLLM } = require('../providers');
 const {
   buildAgentSystemPrompt,
@@ -33,9 +34,22 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   const userId = meta.userId || 'anonymous';
 
   const intent = classifyIntent(userMessage);
+  const tickerList = Array.isArray(intent.tickers) ? intent.tickers : [];
   console.log(
-    `[agent-loop] Intent: ${intent.type} (${intent.confidence}) skipRag=${intent.skipRag}`
+    `[agent-loop] Intent: ${intent.type} (${intent.confidence}) skipRag=${intent.skipRag}` +
+      (tickerList.length ? ` tickers=${tickerList.join(',')}` : '')
   );
+
+  // Fast-path: pair ticker → fetch Binance langsung, LLM hanya format jawaban
+  let prefetchedPrices = null;
+  let toolsUsedSeed = [];
+  if (intent.type === 'realtime' && tickerList.length > 0 && !meta.toolResult) {
+    prefetchedPrices = await fetchBinanceTickers(tickerList);
+    console.log(
+      `[agent-loop] Prefetch Binance: ${prefetchedPrices.ok ? 'OK' : 'FAIL'} ` +
+        `${JSON.stringify(prefetchedPrices.rows || prefetchedPrices.error)}`
+    );
+  }
 
   let ragContext = '';
   let ragUsed = false;
@@ -62,6 +76,13 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   if (ragContext && !intent.skipRag) {
     systemPrompt += `\n\n${ragContext}`;
   }
+  if (prefetchedPrices && prefetchedPrices.ok) {
+    systemPrompt +=
+      `\n\n## DATA HARGA LIVE (SUDAH DI-FETCH SISTEM — JANGAN FETCH LAGI)\n` +
+      prefetchedPrices.formatted +
+      `\n\nWAJIB action "final" memakai data di atas. ` +
+      `JANGAN panggil tool fetch. JANGAN ganti ke PAXG/XAUT/token lain.`;
+  }
 
   const priorHistory = Array.isArray(meta.history) ? meta.history : [];
   const messages = [
@@ -70,6 +91,18 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     { role: 'user', content: userMessage },
   ];
 
+  if (prefetchedPrices && prefetchedPrices.ok) {
+    messages.push({
+      role: 'user',
+      content:
+        `[SISTEM] Harga Binance sudah diambil otomatis untuk: ${tickerList.join(', ')}.\n` +
+        prefetchedPrices.formatted +
+        `\n\nJawab FINAL sekarang (simbol, harga, sumber URL, waktu server). Jangan fetch lagi.`,
+    });
+    toolsUsedSeed = ['fetch'];
+    intent.blockTools = [...new Set([...(intent.blockTools || []), 'fetch', 'shell'])];
+  }
+
   if (meta.toolResult) {
     messages.push({
       role: 'user',
@@ -77,7 +110,10 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     });
   }
 
-  let toolsUsed = Array.isArray(meta.toolsUsed) ? [...meta.toolsUsed] : [];
+  let toolsUsed = Array.isArray(meta.toolsUsed) && meta.toolsUsed.length
+    ? [...meta.toolsUsed]
+    : [...toolsUsedSeed];
+  const toolCallCounts = new Map(); // sig -> count (anti-repeat)
   let step = Number.isInteger(meta.step) ? meta.step : 0;
 
   while (step < maxSteps) {
@@ -144,6 +180,22 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         continue;
       }
 
+      // Prevent identical tool+args spam (e.g. fetch same URL 3x)
+      const callSig = `${parsed.tool}::${JSON.stringify(parsed.args || {})}`;
+      const prevCount = toolCallCounts.get(callSig) || 0;
+      if (prevCount >= 1) {
+        console.log(`[agent-loop] Repeat tool blocked: ${callSig}`);
+        messages.push({ role: 'assistant', content: rawResponse });
+        messages.push({
+          role: 'user',
+          content:
+            `Eksekusi Tool Ditolak: Tool "${parsed.tool}" dengan args yang sama sudah dijalankan. ` +
+            `JANGAN fetch/tool ulang. Gunakan hasil sebelumnya dan segera action "final".`,
+        });
+        continue;
+      }
+      toolCallCounts.set(callSig, prevCount + 1);
+
       console.log(`[agent-loop] Executing tool: ${parsed.tool}`);
       toolsUsed.push(parsed.tool);
 
@@ -205,9 +257,18 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
       const outputText = truncateOutput(result.output || '(No output)');
       messages.push({ role: 'assistant', content: rawResponse });
+      let resultMsg = `Hasil eksekusi tool ${parsed.tool}:\n${outputText}`;
+      if (parsed.tool === 'fetch') {
+        const failed = /^Gagal fetch:/i.test(String(result.output || ''));
+        if (!failed) {
+          resultMsg +=
+            '\n\n[SISTEM] Fetch berhasil. WAJIB segera action "final" dengan harga/data di atas. ' +
+            'Jangan fetch lagi kecuali user minta sumber lain.';
+        }
+      }
       messages.push({
         role: 'user',
-        content: `Hasil eksekusi tool ${parsed.tool}:\n${outputText}`,
+        content: resultMsg,
       });
     }
   }
@@ -273,9 +334,85 @@ function buildSourceFooter({ ragUsed, toolsUsed, intent }) {
   return `---\n${parts.join(' · ')}`;
 }
 
+
+/**
+ * Prefetch spot prices from Binance for detected tickers.
+ * Catatan: XAUUSDT tidak ada di Binance Spot — fallback ke XAUTUSDT + PAXGUSDT (token emas).
+ */
+async function fetchBinanceTickers(symbols) {
+  const bases = [
+    'https://api.binance.com',
+    'https://data-api.binance.vision',
+  ];
+
+  async function fetchOne(symbol) {
+    let lastErr = null;
+    for (const base of bases) {
+      const url = `${base}/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`;
+      try {
+        const res = await axios.get(url, {
+          timeout: 12000,
+          headers: { 'User-Agent': 'JongosAIFree/1.0', Accept: 'application/json' },
+        });
+        const data = res.data || {};
+        if (data.code && data.msg) {
+          lastErr = data.msg;
+          continue;
+        }
+        if (data.symbol && data.price != null) {
+          return { ok: true, symbol: data.symbol, price: data.price, url };
+        }
+        lastErr = 'response tidak dikenal';
+      } catch (e) {
+        lastErr = e.response?.data?.msg || e.message;
+      }
+    }
+    return { ok: false, symbol, error: lastErr || 'gagal' };
+  }
+
+  const expanded = [];
+  const notes = [];
+  for (const symbol of symbols) {
+    expanded.push(symbol);
+    // XAUUSDT / XAUSDT tidak listing di Binance Spot
+    if (/^XAU(USDT|USD|USDC)?$/i.test(symbol) || symbol === 'XAUSDT') {
+      notes.push(
+        `${symbol} tidak tersedia sebagai pair spot Binance. ` +
+          `Dipakai proksi emas: XAUTUSDT (Tether Gold) dan PAXGUSDT (PAX Gold).`
+      );
+      for (const alt of ['XAUTUSDT', 'PAXGUSDT']) {
+        if (!expanded.includes(alt)) expanded.push(alt);
+      }
+    }
+  }
+
+  const rows = [];
+  const errors = [];
+  for (const symbol of expanded) {
+    const r = await fetchOne(symbol);
+    if (r.ok) {
+      rows.push({ symbol: r.symbol, price: r.price, url: r.url });
+    } else {
+      errors.push(`${symbol}: ${r.error}`);
+    }
+  }
+
+  if (!rows.length) {
+    return { ok: false, error: errors.join('; ') || 'tidak ada data', notes };
+  }
+
+  const formatted = [
+    ...(notes.length ? notes.map((n) => `NOTE: ${n}`) : []),
+    ...rows.map((r) => `- ${r.symbol}: ${r.price} (sumber: ${r.url})`),
+  ].join('\n');
+
+  return { ok: true, rows, formatted, errors, notes };
+}
+
 module.exports = {
   runAgentLoop,
   buildSourceFooter,
   truncateOutput,
   classifyIntent,
+  fetchBinanceTickers,
 };

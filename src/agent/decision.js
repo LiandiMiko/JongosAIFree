@@ -66,17 +66,28 @@ function classifyIntent(text) {
     return result;
   }
 
-  // --- REALTIME (harga, berita, cuaca, crypto live)
-  const liveHit = isRealtimeIntent(t);
+  // --- REALTIME (harga, berita, cuaca, crypto live, ticker *USDT)
+  const tickers = extractTickers(raw);
+  const liveHit = isRealtimeIntent(t) || tickers.length > 0;
   if (liveHit) {
     result.type = 'realtime';
     result.confidence = 'high';
     result.skipRag = true;
     result.preferTools = ['fetch'];
     result.blockTools = ['shell'];
+    result.tickers = tickers;
     result.hints.push(
       'Data live: WAJIB fetch ke sumber online. Jangan shell/curl, jangan andalkan RAG vault.'
     );
+    if (tickers.length) {
+      const primary = tickers[0];
+      result.hints.push(
+        `Ticker terdeteksi: ${tickers.join(', ')}. ` +
+          `Fetch PERSIS pair ini di Binance: ` +
+          `https://api.binance.com/api/v3/ticker/price?symbol=${primary} ` +
+          `(JANGAN ganti ke token lain seperti XAUT/PAXG kecuali user minta itu).`
+      );
+    }
     return result;
   }
 
@@ -170,24 +181,55 @@ function isVaultIntent(t) {
   return { matched: false, confidence: 'low' };
 }
 
+/** Deteksi simbol pair exchange: BTCUSDT, XAUUSDT, ETHUSDT, dll. */
+function extractTickers(text) {
+  const s = String(text || '');
+  const found = new Set();
+  const quotes = ['USDT', 'BUSD', 'USDC', 'USD'];
+  const re = /\b([A-Za-z]{4,20})\b/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const tok = m[1].toUpperCase();
+    for (const q of quotes) {
+      if (tok.endsWith(q) && tok.length > q.length + 1) {
+        found.add(tok);
+        break;
+      }
+    }
+  }
+  if (/\b(btc|bitcoin)\b/i.test(s)) found.add('BTCUSDT');
+  if (/\b(eth|ethereum)\b/i.test(s) && !found.has('ETHUSDT')) {
+    if (/\b(harga|price|berapa)\b/i.test(s)) found.add('ETHUSDT');
+  }
+  // Typo / shorthand umum: "xausdt" → XAUUSDT
+  const aliases = {
+    XAUSDT: 'XAUUSDT',
+    XAUUSD: 'XAUUSDT',
+    GOLDUSDT: 'XAUUSDT',
+  };
+  const normalized = new Set();
+  for (const sym of found) normalized.add(aliases[sym] || sym);
+  return [...normalized];
+}
+
 function isRealtimeIntent(t) {
+  if (extractTickers(t).length > 0) return true;
+
   const liveKeyword =
     /\b(harga|price|kurs|cuaca|weather|berita|news|ticker|spot)\b/i.test(t) ||
-    /\b(btc|bitcoin|eth|ethereum|usdt|ondo|tao|bittensor|crypto|kripto|saham|stock|forex)\b/i.test(
+    /\b(btc|bitcoin|eth|ethereum|usdt|ondo|tao|bittensor|crypto|kripto|saham|stock|forex|xau|gold)\b/i.test(
       t
     );
 
   const liveTime =
     /\b(saat ini|sekarang|real[\s-]?time|terkini|terbaru|live|hari ini)\b/i.test(t);
 
-  // "harga X" alone is enough
   if (/\b(harga|price|kurs)\b/i.test(t)) return true;
   if (/\b(cuaca|weather)\b/i.test(t)) return true;
   if (/\b(berita|news)\b.{0,20}\b(terbaru|terkini|hari ini|sekarang)?\b/i.test(t)) return true;
 
-  // crypto ticker-ish
   if (
-    /\b(btc|bitcoin|eth|ethereum|ondo|tao)\b/i.test(t) &&
+    /\b(btc|bitcoin|eth|ethereum|ondo|tao|xau)\b/i.test(t) &&
     (liveTime || /\b(berapa|harga|price)\b/i.test(t) || t.length < 40)
   ) {
     return true;
@@ -326,7 +368,10 @@ function buildAgentSystemPrompt(
     toolList,
     '',
     '## PRIORITAS SUMBER DATA (WAJIB):',
-    '1. Data LIVE (harga kripto/saham, cuaca, berita, "saat ini") → tool **fetch** ke URL API/situs.',
+    '1. Data LIVE (harga pair exchange / kripto / XAU, cuaca, berita) → tool **fetch**.',
+    '   Pair *USDT/*BUSD (contoh XAUUSDT, BTCUSDT, ETHUSDT) → WAJIB Binance spot ticker:',
+    '   https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT',
+    '   Gunakan SYMBOL PERSIS yang diminta user. Jangan substitusi ke token lain (XAUUSDT ≠ XAUT/PAXG).',
     '2. Tanggal/jam "hari ini" → pakai WAKTU SERVER (final), tidak perlu shell/fetch.',
     '3. Status API/token/kuota → bukan vault; arahkan ke /status.',
     '4. Isi vault / note / project user → obsidian-search / obsidian-read / RAG.',
@@ -335,12 +380,13 @@ function buildAgentSystemPrompt(
     '## ATURAN WAJIB:',
     '1. JANGAN pakai shell untuk cek harga, download web, curl/wget ke API publik, atau cek tanggal. Pakai fetch atau waktu server.',
     '2. JANGAN mengarang harga/kurs/berita. Kalau butuh angka terkini → fetch dulu, baru final.',
-    '3. JANGAN mengandalkan cuplikan RAG vault untuk harga crypto "saat ini".',
+    '3. JANGAN mengandalkan cuplikan RAG vault untuk harga "saat ini".',
     '4. Jika user minta buka/baca/cari note di vault → obsidian-* dulu.',
     '5. JANGAN mengarang isi note. Cari/baca dulu lewat tool.',
     '6. Satu action shell = satu command sederhana. Dilarang &&, ||, ;, |, >, <, backtick, $().',
-    '7. Setelah fetch berhasil, berikan final yang jelas (angka + sumber URL + waktu server).',
-    '8. Ringkas: jangan panggil tool yang sama berulang tanpa alasan.',
+    '7. Setelah fetch BERHASIL (dapat JSON/harga), WAJIB langsung action "final". JANGAN fetch ulang URL yang sama atau sumber lain kecuali hasil error/gagal.',
+    '8. JANGAN panggil tool yang sama dengan args yang sama dua kali. Satu fetch sukses = langsung jawab.',
+    '9. Jawaban harga: sebutkan simbol, harga, sumber URL, dan waktu server.',
   ].join('\n');
 }
 
@@ -381,4 +427,5 @@ module.exports = {
   isRealtimeIntent,
   isTimeOnlyIntent,
   isShellIntent,
+  extractTickers,
 };

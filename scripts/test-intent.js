@@ -11,6 +11,8 @@ const { checkHardToolPolicy } = require('../src/agent/tool-executor');
 const cases = [
   ['harga btc sekarang', 'realtime'],
   ['berapa harga bitcoin', 'realtime'],
+  ['harga xausdt', 'realtime'],
+  ['xausdt', 'realtime'],
   ['cuaca jakarta hari ini', 'realtime'],
   ['jam berapa sekarang', 'time'],
   ['tanggal berapa hari ini', 'time'],
@@ -81,6 +83,21 @@ if (!okIntent) failed++;
 console.log(
   `${okIntent ? '✓' : '✗'} shell blocked by realtime intent → ${intentBlock.blocked}`
 );
+
+console.log('\n=== extractTickers ===');
+const { extractTickers } = require('../src/agent/decision');
+const tickerCases = [
+  ['harga xausdt', ['XAUUSDT']],
+  ['XAUUSDT', ['XAUUSDT']],
+  ['btc dan eth harga', ['BTCUSDT', 'ETHUSDT']],
+];
+for (const [text, expected] of tickerCases) {
+  const got = extractTickers(text).sort().join(',');
+  const exp = expected.sort().join(',');
+  const ok = got === exp;
+  if (!ok) failed++;
+  console.log(`${ok ? '✓' : '✗'} extractTickers("${text}") = [${got}] (expected [${exp}])`);
+}
 
 console.log(failed === 0 ? '\nAll tests passed.' : `\n${failed} test(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);
