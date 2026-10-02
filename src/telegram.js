@@ -55,6 +55,11 @@ function needsAgentLoop(text) {
     const { isProviderStatusQuery } = require('./status-report');
     if (isProviderStatusQuery(t)) return false;
   } catch (_) {}
+  // Perintah simpan note eksplisit
+  try {
+    const { isExplicitSaveCommand } = require('./import-to-vault');
+    if (isExplicitSaveCommand(t)) return false;
+  } catch (_) {}
   // Trigger words
   return AGENT_TRIGGERS.some(re => re.test(t));
 }
@@ -72,21 +77,29 @@ function startTelegram(config) {
   // ==============================
   // Normal text message
   // ==============================
-  // === Handler: file document (import chat) ===
+  // === Handler: file document → vault / AI-chat import ===
   bot.on('message:document', async (ctx) => {
     const userId = `tg-${ctx.from.id}`;
     const doc = ctx.message.document;
+    const caption = (ctx.message.caption || '').trim();
 
     console.log(`[telegram] DOC from ${userId}: ${doc.file_name} (${doc.file_size} bytes)`);
 
     try {
       await ctx.replyWithChatAction('typing');
 
-      const allowedExt = ['.json', '.md', '.txt'];
+      const allowedExt = ['.json', '.md', '.txt', '.markdown'];
       const ext = (doc.file_name || '').toLowerCase().match(/\.[a-z0-9]+$/)?.[0] || '';
 
       if (!allowedExt.includes(ext)) {
-        await ctx.reply(`❌ Format tidak didukung: ${ext}\nHanya: .json, .md, .txt`);
+        await ctx.reply(
+          `❌ Format tidak didukung: ${ext || '(tanpa ekstensi)'}\n` +
+            'Hanya: .md, .txt, .markdown, .json\n\n' +
+            'Atau kirim teks dengan:\n' +
+            '`/save Judul` lalu isi di baris berikutnya\n' +
+            '`simpan note: Judul` + isi\n' +
+            '`simpan:` + teks panjang'
+        );
         return;
       }
 
@@ -106,54 +119,113 @@ function startTelegram(config) {
       const inbox = path.join(__dirname, '..', 'data', 'imports', 'inbox');
       fs.mkdirSync(inbox, { recursive: true });
 
-      const safeName = String(doc.file_name || 'import.json').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeName = String(doc.file_name || 'import.txt').replace(
+        /[^a-zA-Z0-9._-]/g,
+        '_'
+      );
       const destPath = path.join(inbox, `${Date.now()}-${safeName}`);
 
       await new Promise((resolve, reject) => {
         const ws = fs.createWriteStream(destPath);
-        https.get(url, (res) => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`download failed: HTTP ${res.statusCode}`));
-            return;
-          }
-          res.pipe(ws);
-          ws.on('finish', () => ws.close(resolve));
-          ws.on('error', reject);
-        }).on('error', reject);
+        https
+          .get(url, (res) => {
+            if (res.statusCode !== 200) {
+              reject(new Error(`download failed: HTTP ${res.statusCode}`));
+              return;
+            }
+            res.pipe(ws);
+            ws.on('finish', () => ws.close(resolve));
+            ws.on('error', reject);
+          })
+          .on('error', reject);
       });
 
       console.log(`[telegram] File saved: ${destPath}`);
 
-      // Import via script
-      const { execFile } = require('child_process');
-      const util = require('util');
-      const execFileAsync = util.promisify(execFile);
+      // .json → coba import AI chats; selain itu → note vault
+      if (ext === '.json') {
+        const { execFile } = require('child_process');
+        const util = require('util');
+        const execFileAsync = util.promisify(execFile);
+        const scriptPath = path.join(
+          __dirname,
+          '..',
+          'scripts',
+          'import-ai-chats.js'
+        );
+        try {
+          const { stdout, stderr } = await execFileAsync(
+            'node',
+            [scriptPath, '--file', destPath],
+            { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+          );
+          console.log('[telegram] Import AI chat output:\n' + stdout);
+          if (stderr) console.log('[telegram] Import stderr:', stderr);
+          const lines = stdout.split('\n').filter(Boolean);
+          const summary = lines.find((l) => l.includes('format=')) || '';
+          await ctx.reply(
+            [
+              '✅ *Import chat AI selesai*',
+              '',
+              `File: \`${safeName}\``,
+              summary ? summary.trim() : '',
+              '',
+              'Cek vault: `07 Imported/AI Chats/`',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            { parse_mode: 'Markdown' }
+          );
+        } catch (aiErr) {
+          // Fallback: simpan raw JSON sebagai note
+          const content = fs.readFileSync(destPath, 'utf8');
+          const { saveFileContentAsNote } = require('./import-to-vault');
+          const result = saveFileContentAsNote({
+            originalName: safeName.replace(/\.json$/i, '.md'),
+            content:
+              '```json\n' +
+              content.slice(0, 100000) +
+              '\n```',
+            caption,
+          });
+          if (result.ok) {
+            await ctx.reply(
+              `✅ JSON disimpan sebagai note (bukan format chat AI):\n\`${result.rel}\``
+            );
+          } else {
+            await ctx.reply(`❌ Import gagal: ${aiErr.message}`);
+          }
+        }
+        return;
+      }
 
-      const scriptPath = path.join(__dirname, '..', 'scripts', 'import-ai-chats.js');
-      const { stdout, stderr } = await execFileAsync('node', [scriptPath, '--file', destPath], {
-        timeout: 120000,
-        maxBuffer: 10 * 1024 * 1024,
+      // .md / .txt → vault note
+      const content = fs.readFileSync(destPath, 'utf8');
+      const { saveFileContentAsNote } = require('./import-to-vault');
+      const result = saveFileContentAsNote({
+        originalName: doc.file_name || safeName,
+        content,
+        caption,
       });
 
-      console.log('[telegram] Import output:\n' + stdout);
-      if (stderr) console.log('[telegram] Import stderr:', stderr);
-
-      // Parse hasil dari stdout
-      const lines = stdout.split('\n').filter(Boolean);
-      const summary = lines.find((l) => l.includes('format=')) || '';
+      if (!result.ok) {
+        await ctx.reply(`❌ Gagal simpan ke vault: ${result.error}`);
+        return;
+      }
 
       await ctx.reply(
         [
-          '✅ *Import selesai*',
+          '✅ *File disimpan ke vault*',
           '',
-          `File: \`${safeName}\``,
-          summary ? `${summary.trim()}` : '',
+          `Note: \`${result.rel}\``,
+          caption ? `Caption: ${caption}` : '',
           '',
-          'Cek di vault: \`07 Imported/AI Chats/\`',
-        ].filter(Boolean).join('\n'),
+          '_Folder default: Inbox/Imports_',
+        ]
+          .filter(Boolean)
+          .join('\n'),
         { parse_mode: 'Markdown' }
       );
-
     } catch (err) {
       console.error('[telegram] Import error:', err.message);
       await ctx.reply(`❌ Import gagal: ${err.message}`);
@@ -181,6 +253,47 @@ function startTelegram(config) {
       return;
     }
     // === end /status ===
+
+    // === Save text to vault (/save, simpan note, simpan:) ===
+    try {
+      const {
+        parseSaveTextCommand,
+        saveTextAsNote,
+      } = require('./import-to-vault');
+      const saveCmd = parseSaveTextCommand(text);
+      if (saveCmd) {
+        if (saveCmd.needsBody && !saveCmd.body) {
+          await ctx.reply(
+            '📝 Kirim ulang dengan isi note, contoh:\n\n' +
+              '`/save Judul catatan`\n' +
+              'Isi paragraf di sini...\n\n' +
+              'atau:\n' +
+              '`simpan:`\n' +
+              'teks panjang...'
+          );
+          return;
+        }
+        const result = saveTextAsNote({
+          title: saveCmd.title || 'Catatan Telegram',
+          body: saveCmd.body || '',
+        });
+        if (!result.ok) {
+          await ctx.reply(`❌ Gagal simpan: ${result.error}`);
+          return;
+        }
+        await ctx.reply(
+          `✅ Tersimpan ke vault:\n\`${result.rel}\``,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+    } catch (e) {
+      console.error('[telegram] save-note error:', e.message);
+      await ctx.reply(`❌ Gagal simpan note: ${e.message}`).catch(() => {});
+      return;
+    }
+    // === end save-note ===
+
 
     try {
       await ctx.replyWithChatAction('typing');
