@@ -1,7 +1,13 @@
 const express = require('express');
 const path = require('path');
-const { processMessage } = require('./agent-loop');
+const {
+  runAgent,
+  executeApprovedRequest,
+  continueAgentAfterApproval,
+} = require('./agent-loop');
 const { addMessage } = require('./memory');
+const { listPendingApprovals, denyRequest } = require('./approval');
+const { indexVault, loadIndex } = require('./rag');
 
 /**
  * Start the Web UI Express server
@@ -15,7 +21,7 @@ function startWebUI(config) {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
-  // Chat endpoint
+  // Chat endpoint — returns structured result (answered vs approval_required)
   app.post('/api/chat', async (req, res) => {
     const { message, sessionId } = req.body;
 
@@ -26,15 +32,114 @@ function startWebUI(config) {
     const userId = `web-${sessionId || 'anonymous'}`;
 
     try {
-      const reply = await processMessage(userId, message, config);
-      res.json({ reply });
+      const result = await runAgent(message, config, {
+        userId,
+        source: 'webui',
+      });
+
+      if (result.status === 'answered') {
+        return res.json({ status: 'answered', reply: result.answer });
+      }
+
+      if (result.status === 'approval_required') {
+        return res.json({
+          status: 'approval_required',
+          requestId: result.requestId,
+          tool: result.tool,
+          args: result.args,
+          policy: result.policy,
+          message: result.message,
+        });
+      }
+
+      res.json({ status: 'error', reply: result.message || 'Terjadi kesalahan.' });
     } catch (err) {
       console.error('[webui] Chat error:', err.message);
-      res.status(500).json({ error: 'Something went wrong' });
+      res.status(500).json({ error: 'Something went wrong: ' + err.message });
     }
   });
 
-  // Device data endpoint — receives browser device info and stores in memory
+  // Approvals endpoints
+  app.get('/api/approvals', (req, res) => {
+    try {
+      const sessionId = req.query.sessionId || 'anonymous';
+      const userId = `web-${sessionId}`;
+      const pending = listPendingApprovals(userId);
+      res.json({ approvals: pending });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/approvals/approve', async (req, res) => {
+    const { requestId, sessionId } = req.body;
+    if (!requestId) {
+      return res.status(400).json({ error: 'requestId required' });
+    }
+
+    const userId = `web-${sessionId || 'anonymous'}`;
+
+    try {
+      const execResult = await executeApprovedRequest(requestId, userId, { config });
+      if (execResult.status === 'executed') {
+        const finalRes = await continueAgentAfterApproval(execResult, config, {
+          userId,
+          source: 'webui',
+        });
+        return res.json({
+          ok: true,
+          status: 'approved',
+          reply: finalRes.answer || 'Tool berhasil dieksekusi.',
+        });
+      }
+
+      res.status(400).json({ error: execResult.message || 'Gagal mengeksekusi tool.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/approvals/deny', (req, res) => {
+    const { requestId, sessionId } = req.body;
+    if (!requestId) {
+      return res.status(400).json({ error: 'requestId required' });
+    }
+
+    const userId = `web-${sessionId || 'anonymous'}`;
+    const result = denyRequest(requestId, userId);
+
+    if (result.success) {
+      res.json({ ok: true, message: 'Permintaan tool berhasil ditolak (denied).' });
+    } else {
+      res.status(400).json({ error: result.reason || 'Gagal menolak approval.' });
+    }
+  });
+
+  // RAG endpoints
+  app.get('/api/rag/stats', (req, res) => {
+    try {
+      const chunks = loadIndex();
+      const uniqueNotes = new Set(chunks.map((c) => c.notePath)).size;
+      res.json({
+        totalChunks: chunks.length,
+        totalNotesIndexed: uniqueNotes,
+        indexed: chunks.length > 0,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rag/reindex', (req, res) => {
+    try {
+      const result = indexVault();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Device data endpoint
   app.post('/api/device', async (req, res) => {
     const { sessionId, type, data } = req.body;
 
@@ -45,7 +150,6 @@ function startWebUI(config) {
     const userId = `web-${sessionId || 'anonymous'}`;
 
     try {
-      // Store device data as system context in memory
       await addMessage(userId, 'system', `[Device ${type}] ${data}`);
       console.log(`[webui] Device data received: ${type} from ${userId}`);
       res.json({ ok: true });
@@ -64,13 +168,12 @@ function startWebUI(config) {
     });
   });
 
-  // Route eksplisit untuk /dashboard
+  // Dashboard route
   app.get('/dashboard', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
   });
 
   // === Dashboard endpoints ===
-
   app.get('/api/status', (req, res) => {
     try {
       const { getAllProviderStatus } = require('./llm-status');
@@ -117,20 +220,19 @@ function startWebUI(config) {
     try {
       const skill = require('../skills/obsidian-tags');
       const tagsResult = await skill.run('obsidian-tags');
-
-      // Hitung manual
       const fs = require('fs');
-      const path = require('path');
-      const VAULT = process.env.OBSIDIAN_VAULT ||
-        path.join(__dirname, '..', 'memory', 'second-brain');
+      const VAULT = process.env.OBSIDIAN_VAULT || path.join(__dirname, '..', 'memory', 'second-brain');
 
       let mdCount = 0;
       let folderCount = 0;
 
       function walk(d) {
         let entries;
-        try { entries = fs.readdirSync(d, { withFileTypes: true }); }
-        catch { return; }
+        try {
+          entries = fs.readdirSync(d, { withFileTypes: true });
+        } catch {
+          return;
+        }
         for (const e of entries) {
           if (e.name.startsWith('.') || e.name === 'node_modules') continue;
           if (e.isDirectory()) {
@@ -153,8 +255,6 @@ function startWebUI(config) {
       res.status(500).json({ error: err.message });
     }
   });
-
-  // === End dashboard endpoints ===
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`[webui] Server running at http://localhost:${port} (or http://127.0.0.1:${port})`);

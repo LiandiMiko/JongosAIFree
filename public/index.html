@@ -83,6 +83,30 @@
       border-bottom-left-radius: 2px;
     }
 
+    .msg.approval {
+      align-self: flex-start;
+      background: #231b14;
+      border: 1px solid #f4a460;
+      color: #e0e0e0;
+      border-bottom-left-radius: 2px;
+      width: 100%;
+      max-width: 90%;
+    }
+    .approval-btn {
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-right: 8px;
+    }
+    .approval-btn.allow { background: #1a3d2b; color: #4ecdc4; border-color: #4ecdc4; }
+    .approval-btn.allow:hover { background: #4ecdc4; color: #0d0f14; }
+    .approval-btn.deny { background: #3d1a1a; color: #ff6b6b; border-color: #ff6b6b; }
+    .approval-btn.deny:hover { background: #ff6b6b; color: #0d0f14; }
+
     /* Typing indicator */
     .typing {
       align-self: flex-start;
@@ -421,8 +445,10 @@
 
         if (data.error) {
           addMessage(data.error, 'error');
+        } else if (data.status === 'approval_required') {
+          addApprovalCard(data);
         } else {
-          addMessage(data.reply, 'bot');
+          addMessage(data.reply || data.message || '', 'bot');
         }
       } catch (err) {
         typingEl.classList.remove('active');
@@ -432,6 +458,64 @@
       sending = false;
       sendBtn.disabled = false;
       inputEl.focus();
+    }
+
+    function addApprovalCard(data) {
+      const div = document.createElement('div');
+      div.className = 'msg approval';
+      div.id = `approval-card-${data.requestId}`;
+      
+      const argsText = typeof data.args === 'object' ? JSON.stringify(data.args, null, 2) : String(data.args || '');
+
+      div.innerHTML = `
+        <div style="color: #f4a460; font-weight: bold; font-size: 13px; margin-bottom: 6px;">🔐 Tool High-Risk Membutuhkan Approval</div>
+        <div style="font-size: 12px; margin-bottom: 8px;">
+          <div><strong>Tool:</strong> <code style="color:#4ecdc4;">${data.tool}</code></div>
+          <div><strong>Risk Level:</strong> <span style="color:#ff6b6b;font-weight:bold;">${data.policy?.label || 'HIGH'}</span></div>
+          <div style="margin-top: 4px;"><strong>Argumen:</strong></div>
+          <pre style="background:#0d0f14; padding:6px; border-radius:4px; font-size:11px; margin-top:2px; max-height:150px; overflow:auto;">${argsText}</pre>
+        </div>
+        <div class="approval-actions" style="margin-top: 10px;">
+          <button class="approval-btn allow" onclick="handleWebApproval('${data.requestId}', 'approve')">✅ ALLOW (Setujui)</button>
+          <button class="approval-btn deny" onclick="handleWebApproval('${data.requestId}', 'deny')">❌ DENY (Tolak)</button>
+        </div>
+      `;
+
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    async function handleWebApproval(requestId, action) {
+      const card = document.getElementById(`approval-card-${requestId}`);
+      if (!card) return;
+
+      const actionsEl = card.querySelector('.approval-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = `<span style="color:#f4a460; font-size:12px;">⏳ Memproses ${action}...</span>`;
+      }
+
+      const endpoint = action === 'approve' ? '/api/approvals/approve' : '/api/approvals/deny';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId, sessionId }),
+        });
+
+        const data = await res.json();
+
+        if (action === 'approve' && data.ok) {
+          if (actionsEl) actionsEl.innerHTML = `<span style="color:#4ecdc4; font-size:12px; font-weight:bold;">✅ Tool Disetujui & Dieksekusi</span>`;
+          addMessage(data.reply || 'Eksekusi selesai.', 'bot');
+        } else if (action === 'deny' && data.ok) {
+          if (actionsEl) actionsEl.innerHTML = `<span style="color:#ff6b6b; font-size:12px; font-weight:bold;">❌ Tool Ditolak (Denied)</span>`;
+        } else {
+          if (actionsEl) actionsEl.innerHTML = `<span style="color:#ff6b6b; font-size:12px;">Gagal: ${data.error || 'Terjadi kesalahan.'}</span>`;
+        }
+      } catch (err) {
+        if (actionsEl) actionsEl.innerHTML = `<span style="color:#ff6b6b; font-size:12px;">Error: ${err.message}</span>`;
+      }
     }
 
     // === DEVICE ACCESS ===

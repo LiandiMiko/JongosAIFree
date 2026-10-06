@@ -98,6 +98,31 @@
     .status.error { background: #3d1a1a; color: #ff6b6b; }
     .status.unknown { background: #1a1d26; color: #666; }
 
+    /* Approvals Card */
+    .approval-item {
+      background: #0d0f14;
+      border: 1px solid #3d2a1a;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    .approval-item .tool-name { color: #f4a460; font-weight: bold; }
+    .approval-item .args-box {
+      background: #141721;
+      padding: 6px;
+      border-radius: 4px;
+      margin: 6px 0;
+      font-size: 11px;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    .approval-item .actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
     /* Skills */
     .skill {
       display: flex;
@@ -161,6 +186,18 @@
     }
     .refresh-btn:hover { background: #2a2f42; }
 
+    .action-btn {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: bold;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .action-btn.allow { background: #1a3d2b; color: #4ecdc4; border-color: #4ecdc4; }
+    .action-btn.deny { background: #3d1a1a; color: #ff6b6b; border-color: #ff6b6b; }
+
     @media (max-width: 480px) {
       .stat-grid { grid-template-columns: repeat(3, 1fr); }
       .stat .num { font-size: 18px; }
@@ -169,7 +206,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🦞 PAJIO DASHBOARD</h1>
+    <h1>🦞 PAIJO DASHBOARD</h1>
     <div>
       <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
       <a href="/" style="margin-left: 12px;">← Chat</a>
@@ -196,10 +233,37 @@
       </div>
     </div>
 
+    <!-- RAG Stats Card -->
+    <div class="card">
+      <h2>🧠 RAG Vector Index <span class="badge" id="rag-status">Active</span></h2>
+      <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="stat">
+          <div class="num" id="stat-rag-chunks">-</div>
+          <div class="label">Total Chunks</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="stat-rag-notes">-</div>
+          <div class="label">Indexed Notes</div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <span id="reindex-status" style="font-size: 11px; color: #888;">Hybrid (Cosine + BM25)</span>
+        <button class="refresh-btn" onclick="triggerReindex()" id="btn-reindex" style="background:#1a3d2b; color:#4ecdc4; border-color:#4ecdc4;">🔄 Re-index Vault Now</button>
+      </div>
+    </div>
+
     <!-- Providers -->
     <div class="card">
       <h2>⚡ Providers <span class="badge" id="provider-count"></span></h2>
       <div id="providers">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Pending Approvals Card -->
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2>🔐 Pending Approvals (High-Risk Tools) <span class="badge" id="approval-count">0 pending</span></h2>
+      <div id="pending-approvals">
         <div class="loading">Loading...</div>
       </div>
     </div>
@@ -242,7 +306,6 @@
           return;
         }
 
-        // Sort: available dulu, terus rate_limited, terakhir error/unknown
         const order = { available: 0, rate_limited: 1, error: 2, unknown: 3 };
         providers.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
 
@@ -264,6 +327,108 @@
       } catch (e) {
         document.getElementById('providers').innerHTML =
           `<div class="loading">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function loadRagStats() {
+      try {
+        const r = await fetch('/api/rag/stats');
+        const data = await r.json();
+        document.getElementById('stat-rag-chunks').textContent = data.totalChunks || 0;
+        document.getElementById('stat-rag-notes').textContent = data.totalNotesIndexed || 0;
+        document.getElementById('rag-status').textContent = data.indexed ? 'Active' : 'Unindexed';
+      } catch (e) {
+        console.error('RAG stats error:', e);
+      }
+    }
+
+    async function triggerReindex() {
+      const btn = document.getElementById('btn-reindex');
+      const statusEl = document.getElementById('reindex-status');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Indexing...';
+      statusEl.textContent = 'Proses re-index vault sedang berjalan...';
+
+      try {
+        const r = await fetch('/api/rag/reindex', { method: 'POST' });
+        const data = await r.json();
+
+        if (data.success) {
+          statusEl.textContent = `✅ Sukses! ${data.totalFiles} file ➔ ${data.totalChunks} chunks`;
+          loadRagStats();
+        } else {
+          statusEl.textContent = '❌ Gagal meng-index vault.';
+        }
+      } catch (e) {
+        statusEl.textContent = `Error: ${e.message}`;
+      }
+
+      btn.disabled = false;
+      btn.textContent = '🔄 Re-index Vault Now';
+    }
+
+    async function loadPendingApprovals() {
+      try {
+        const r = await fetch('/api/approvals');
+        const data = await r.json();
+        const approvals = data.approvals || [];
+
+        document.getElementById('approval-count').textContent = approvals.length + ' pending';
+
+        if (approvals.length === 0) {
+          document.getElementById('pending-approvals').innerHTML =
+            '<div class="loading">Tidak ada permintaan tool high-risk yang pending.</div>';
+          return;
+        }
+
+        const html = approvals.map((app) => `
+          <div class="approval-item" id="app-item-${app.requestId}">
+            <div>
+              <span class="tool-name">⚠️ ${app.tool}</span>
+              <span class="risk high" style="margin-left: 6px;">${app.policy?.label || 'HIGH'}</span>
+              <span style="color: #888; font-size: 10px; margin-left: 8px;">ID: ${app.requestId.slice(0, 8)}...</span>
+            </div>
+            <pre class="args-box">${JSON.stringify(app.args, null, 2)}</pre>
+            <div class="actions">
+              <button class="action-btn allow" onclick="dashboardApproval('${app.requestId}', 'approve')">✅ ALLOW (Setujui)</button>
+              <button class="action-btn deny" onclick="dashboardApproval('${app.requestId}', 'deny')">❌ DENY (Tolak)</button>
+            </div>
+          </div>
+        `).join('');
+
+        document.getElementById('pending-approvals').innerHTML = html;
+      } catch (e) {
+        document.getElementById('pending-approvals').innerHTML =
+          `<div class="loading">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function dashboardApproval(requestId, action) {
+      const item = document.getElementById(`app-item-${requestId}`);
+      const endpoint = action === 'approve' ? '/api/approvals/approve' : '/api/approvals/deny';
+
+      if (item) {
+        item.querySelector('.actions').innerHTML = `<span style="color:#f4a460; font-size:11px;">⏳ Memproses...</span>`;
+      }
+
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId }),
+        });
+        const data = await r.json();
+
+        if (data.ok) {
+          loadPendingApprovals();
+        } else {
+          alert('Gagal: ' + (data.error || 'Terjadi kesalahan.'));
+          loadPendingApprovals();
+        }
+      } catch (e) {
+        alert('Connection error: ' + e.message);
+        loadPendingApprovals();
       }
     }
 
@@ -299,7 +464,6 @@
         document.getElementById('stat-folders').textContent = data.folderCount || 0;
         document.getElementById('vault-path').textContent = data.vault ? data.vault.split('/').pop() : '';
 
-        // Parse tags dari output
         const tagsText = data.tags || '';
         const tagLines = tagsText.split('\n').filter((l) => l.includes('`#'));
         const tagsHtml = tagLines.slice(0, 20).map((line) => {
@@ -318,7 +482,6 @@
       try {
         const r = await fetch('/api/tree');
         const data = await r.json();
-        // Extract cuma bagian dalam ``` ```
         const tree = data.tree || '';
         const match = tree.match(/\`\`\`\n([\s\S]*?)\n\`\`\`/);
         document.getElementById('tree').textContent = match ? match[1] : tree;
@@ -329,6 +492,8 @@
 
     function refreshAll() {
       loadStatus();
+      loadRagStats();
+      loadPendingApprovals();
       loadSkills();
       loadStats();
       loadTree();
@@ -337,8 +502,11 @@
     // Initial load
     refreshAll();
 
-    // Auto-refresh status tiap 15 detik
-    setInterval(loadStatus, 15000);
+    // Auto-refresh status & pending approvals tiap 10 detik
+    setInterval(() => {
+      loadStatus();
+      loadPendingApprovals();
+    }, 10000);
   </script>
 </body>
 </html>
