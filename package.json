@@ -14,7 +14,8 @@
     "reindex": "node scripts/reindex-vault.js",
     "import": "node scripts/import-ai-chats.js",
     "test:intent": "node scripts/test-intent.js",
-    "test:rag": "node scripts/test-rag.js"
+    "test:rag": "node scripts/test-rag.js",
+    "test:routing": "node scripts/test-routing.js"
   },
   "keywords": [
     "ai",

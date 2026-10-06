@@ -43,7 +43,10 @@ function classifyIntent(text) {
     hints: [],
   };
 
-  if (!t) return result;
+  if (!t) {
+    result.tier = 'light';
+    return result;
+  }
 
   // --- STATUS (provider / token / kuota) — highest priority for short queries
   const statusHit = isStatusIntent(t);
@@ -53,6 +56,7 @@ function classifyIntent(text) {
     result.skipRag = true;
     result.blockTools = ['shell', 'fetch', 'obsidian-search', 'obsidian-read'];
     result.hints.push('Pertanyaan status provider/token/kuota — jawab via laporan status, bukan vault.');
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
@@ -65,6 +69,7 @@ function classifyIntent(text) {
     result.blockTools = ['shell', 'fetch'];
     result.preferTools = [];
     result.hints.push('Cukup pakai waktu server; tidak perlu shell/fetch/vault.');
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
@@ -86,6 +91,7 @@ function classifyIntent(text) {
     result.hints.push(
       `Args WAJIB: {"note":"04 Knowledge/JongosAIFree.md","content":"- [TANGGAL_HARI_INI] ${entry.replace(/"/g, "'")}"}`
     );
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
@@ -105,7 +111,7 @@ function classifyIntent(text) {
     ];
     result.blockTools = [];
     result.hints.push('Prioritaskan tool obsidian-* / RAG; jangan mengarang isi note.');
-    // If also looks live but explicitly vault → vault wins
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
@@ -131,6 +137,7 @@ function classifyIntent(text) {
           `(JANGAN ganti ke token lain seperti XAUT/PAXG kecuali user minta itu).`
       );
     }
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
@@ -141,12 +148,29 @@ function classifyIntent(text) {
     result.skipRag = true;
     result.preferTools = ['shell', 'device-info'];
     result.hints.push('Perintah sistem lokal — shell hanya untuk satu command sederhana, tanpa chaining.');
+    result.tier = classifyTaskTier(raw, result);
     return result;
   }
 
   result.type = 'general';
   result.confidence = 'low';
+  result.tier = classifyTaskTier(raw, result);
   return result;
+}
+
+/**
+ * Deteksi tingkat kesulitan tugas: 'light' (RAG / Q&A / lookup / time) vs 'heavy' (coding, script, debug, complex math, shell)
+ */
+function classifyTaskTier(text, intent = {}) {
+  const s = String(text || '').toLowerCase();
+
+  // Heavy criteria: coding, programming, debugging, refactoring, complex math, script creation, shell execution, multi-step organize/batch
+  const isHeavy =
+    intent.type === 'shell' ||
+    /\b(coding|code|koding|script|bikin\s+fungsi|refactor|debug|fix\s+bug|algoritma|arsitektur|analisis\s+mendalam|analisa\s+berat|buatkan\s+program|persamaan|writefile|write:|addskill)\b/i.test(s) ||
+    (intent.type === 'vault' && /\b(organize|batch|audit\s+apply|refactor)\b/i.test(s));
+
+  return isHeavy ? 'heavy' : 'light';
 }
 
 function isStatusIntent(t) {

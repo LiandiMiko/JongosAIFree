@@ -171,8 +171,69 @@ const PROVIDERS = {
   },
 };
 
+const TIERED_MODELS = {
+  gemini: {
+    light: [
+      'gemini-3.5-flash-lite',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-3.5-flash',
+    ],
+    heavy: [
+      'gemini-3.8-flash',
+      'gemini-3.6-flash',
+    ],
+  },
+  groq: {
+    light: [
+      'llama-3.1-8b-instant',
+      'gemma2-9b-it',
+      'mixtral-8x7b-32768',
+    ],
+    heavy: [
+      'llama-3.3-70b-versatile',
+    ],
+  },
+  openrouter: {
+    light: [
+      'google/gemma-2-9b-it:free',
+      'meta-llama/llama-3.2-3b-instruct:free',
+      'microsoft/phi-3-mini-128k-instruct:free',
+    ],
+    heavy: [
+      'qwen/qwen-2.5-7b-instruct:free',
+      'mistralai/mistral-7b-instruct:free',
+    ],
+  },
+  mistral: {
+    light: ['open-mistral-7b'],
+    heavy: ['mistral-small-latest'],
+  },
+  sambanova: {
+    light: ['Meta-Llama-3.1-8B-Instruct'],
+    heavy: ['Meta-Llama-3.3-70B-Instruct'],
+  },
+  llm7: {
+    light: ['default'],
+    heavy: ['default'],
+  },
+  llamacpp: {
+    light: ['local-model'],
+    heavy: ['local-model'],
+  },
+};
+
 function getModels(provider) {
   return PROVIDERS[provider]?.models || [];
+}
+
+function getModelsForTier(provider, tier = 'light') {
+  const tiered = TIERED_MODELS[provider];
+  if (!tiered) return getModels(provider);
+  if (tier === 'heavy') {
+    return [...tiered.heavy, ...tiered.light];
+  }
+  return [...tiered.light, ...tiered.heavy];
 }
 
 function isPaymentOrQuotaError(error) {
@@ -253,8 +314,10 @@ async function callLLM(messages, config, options = {}) {
     );
   }
 
+  const taskTier = options.tier || (options.intent?.tier) || 'light';
+
   console.log(
-    `[llm] Provider aktif (ada key): ${providerOrder.join(', ')}`
+    `[llm] Provider aktif (ada key): ${providerOrder.join(', ')} | Tier: ${taskTier.toUpperCase()}`
   );
 
   const available = [];
@@ -267,7 +330,7 @@ async function callLLM(messages, config, options = {}) {
       continue;
     }
 
-    const models = getModels(provider);
+    const models = getModelsForTier(provider, taskTier);
     if (!models.length) continue;
 
     let providerModels = [...models];
@@ -561,6 +624,7 @@ module.exports = {
   callLLM,
   PROVIDERS,
   getModels,
+  getModelsForTier,
   hasProviderKey,
   normalizeModelName,
   warmupProviders,

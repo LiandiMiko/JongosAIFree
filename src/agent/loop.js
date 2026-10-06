@@ -140,7 +140,11 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
     let rawResponse;
     try {
-      rawResponse = await callLLM(messages, config, { json: true });
+      rawResponse = await callLLM(messages, config, {
+        json: true,
+        tier: intent.tier,
+        intent,
+      });
     } catch (err) {
       console.error(`[agent-loop] LLM Call error at step ${step}:`, err.message);
       return {
