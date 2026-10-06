@@ -19,8 +19,9 @@ function tokenize(text) {
       .replace(/([a-z])([A-Z])/g, '$1 $2')
       .replace(/([A-Za-z])([0-9])/g, '$1 $2')
       .toLowerCase()
-      // keep unicode letters/numbers (Indonesian ok), collapse punctuation
-      .replace(/[^\p{L}\p{N}\s/_-]+/gu, ' ')
+      // FIX C16: Escape hyphen to prevent unintended char range /_- (ASCII 47→95)
+      // which accidentally kept colons, semicolons, brackets, question marks, etc.
+      .replace(/[^\p{L}\p{N}\s/_\-]+/gu, ' ')
       .split(/\s+/)
       .map((w) => w.trim())
       .filter((w) => w.length > 1)
@@ -28,9 +29,12 @@ function tokenize(text) {
 }
 
 function tokenizeQuery(text) {
-  // For queries, drop pure stopwords but keep short technical tokens (e.g. rag, api)
-  return tokenize(text).filter((w) => !STOPWORDS.has(w) || w.length >= 5);
+  // FIX D10: Strictly remove all stopwords from query tokens.
+  // The old condition `|| w.length >= 5` kept long stopwords like
+  // 'adalah', 'dengan', 'mereka' (6-7 chars) defeating the stopword filter.
+  return tokenize(text).filter((w) => !STOPWORDS.has(w));
 }
+
 
 function computeTermFrequency(text) {
   const tokens = tokenize(text);

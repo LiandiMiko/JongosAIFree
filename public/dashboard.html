@@ -368,6 +368,16 @@
       btn.textContent = '🔄 Re-index Vault Now';
     }
 
+    // FIX S1-S3: Escape HTML to prevent XSS from tool args, tags, skill names, etc.
+    function escapeHtml(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     async function loadPendingApprovals() {
       try {
         const r = await fetch('/api/approvals');
@@ -376,31 +386,50 @@
 
         document.getElementById('approval-count').textContent = approvals.length + ' pending';
 
+        const container = document.getElementById('pending-approvals');
+
         if (approvals.length === 0) {
-          document.getElementById('pending-approvals').innerHTML =
-            '<div class="loading">Tidak ada permintaan tool high-risk yang pending.</div>';
+          container.innerHTML = '<div class="loading">Tidak ada permintaan tool high-risk yang pending.</div>';
           return;
         }
 
-        const html = approvals.map((app) => `
-          <div class="approval-item" id="app-item-${app.requestId}">
-            <div>
-              <span class="tool-name">⚠️ ${app.tool}</span>
-              <span class="risk high" style="margin-left: 6px;">${app.policy?.label || 'HIGH'}</span>
-              <span style="color: #888; font-size: 10px; margin-left: 8px;">ID: ${app.requestId.slice(0, 8)}...</span>
-            </div>
-            <pre class="args-box">${JSON.stringify(app.args, null, 2)}</pre>
-            <div class="actions">
-              <button class="action-btn allow" onclick="dashboardApproval('${app.requestId}', 'approve')">✅ ALLOW (Setujui)</button>
-              <button class="action-btn deny" onclick="dashboardApproval('${app.requestId}', 'deny')">❌ DENY (Tolak)</button>
-            </div>
-          </div>
-        `).join('');
+        // FIX S1-S3: Build approval cards with escaped values and event listeners
+        container.innerHTML = '';
+        for (const app of approvals) {
+          const safeArgs = escapeHtml(JSON.stringify(app.args, null, 2));
+          const safeTool = escapeHtml(app.tool);
+          const safePolicy = escapeHtml(app.policy?.label || 'HIGH');
+          const safeReqIdShort = escapeHtml(String(app.requestId || '').slice(0, 8));
 
-        document.getElementById('pending-approvals').innerHTML = html;
+          const itemDiv = document.createElement('div');
+          itemDiv.className = 'approval-item';
+          itemDiv.id = `app-item-${escapeHtml(app.requestId)}`;
+          itemDiv.innerHTML = `
+            <div>
+              <span class="tool-name">⚠️ ${safeTool}</span>
+              <span class="risk high" style="margin-left: 6px;">${safePolicy}</span>
+              <span style="color: #888; font-size: 10px; margin-left: 8px;">ID: ${safeReqIdShort}...</span>
+            </div>
+            <pre class="args-box">${safeArgs}</pre>
+            <div class="actions">
+              <button class="action-btn allow" data-request-id="${escapeHtml(app.requestId)}" data-action="approve">✅ ALLOW (Setujui)</button>
+              <button class="action-btn deny" data-request-id="${escapeHtml(app.requestId)}" data-action="deny">❌ DENY (Tolak)</button>
+            </div>
+          `;
+
+          // FIX S2: Use event listeners instead of inline onclick to prevent
+          // requestId injection via attribute string breakout
+          itemDiv.querySelectorAll('.action-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              dashboardApproval(app.requestId, btn.dataset.action);
+            });
+          });
+
+          container.appendChild(itemDiv);
+        }
       } catch (e) {
         document.getElementById('pending-approvals').innerHTML =
-          `<div class="loading">Error: ${e.message}</div>`;
+          `<div class="loading">Error: ${escapeHtml(e.message)}</div>`;
       }
     }
 
@@ -428,6 +457,7 @@
         }
       } catch (e) {
         alert('Connection error: ' + e.message);
+
         loadPendingApprovals();
       }
     }
@@ -469,10 +499,12 @@
         const tagsHtml = tagLines.slice(0, 20).map((line) => {
           const m = line.match(/`#([^`]+)`\s*—\s*(\d+)/);
           if (!m) return '';
-          return `<span class="tag">#${m[1]} <span class="count">${m[2]}</span></span>`;
+          // FIX S3: Escape tag name to prevent Stored XSS via Obsidian note tags
+          return `<span class="tag">#${escapeHtml(m[1])} <span class="count">${escapeHtml(m[2])}</span></span>`;
         }).join('');
 
         document.getElementById('tags').innerHTML = tagsHtml || '<div class="loading">Tidak ada tag.</div>';
+
       } catch (e) {
         console.error('Stats error:', e);
       }

@@ -221,7 +221,9 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       }
 
       // Prevent identical tool+args spam (e.g. fetch same URL 3x)
-      const callSig = `${parsed.tool}::${JSON.stringify(parsed.args || {})}`;
+      // FIX D15: Stable JSON key order to prevent dedup bypass via key reordering
+      const stableArgs = JSON.stringify(parsed.args || {}, Object.keys(parsed.args || {}).sort());
+      const callSig = `${parsed.tool}::${stableArgs}`;
       const prevCount = toolCallCounts.get(callSig) || 0;
       if (prevCount >= 1) {
         console.log(`[agent-loop] Repeat tool blocked: ${callSig}`);
@@ -237,18 +239,28 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       toolCallCounts.set(callSig, prevCount + 1);
 
       console.log(`[agent-loop] Executing tool: ${parsed.tool}`);
-      toolsUsed.push(parsed.tool);
+      // FIX D14: Moved toolsUsed.push() BELOW executeAction — only push on success
+      // (old code pushed before execution, falsely crediting blocked/errored tools)
 
-      const result = await executeAction(parsed, {
-        ...meta,
-        userId,
-        userText: userMessage,
-        history: messages.slice(1),
-        step,
-        config,
-        source: meta.source || 'agent',
-        intent,
-      });
+      // FIX C9: Wrap executeAction in try-catch — synchronous errors from
+      // checkPermission, createApproval, or normalizeToolArgs would otherwise
+      // crash the entire agent loop with an unhandled rejection.
+      let result;
+      try {
+        result = await executeAction(parsed, {
+          ...meta,
+          userId,
+          userText: userMessage,
+          history: messages.slice(1),
+          step,
+          config,
+          source: meta.source || 'agent',
+          intent,
+        });
+      } catch (execErr) {
+        console.error(`[agent-loop] executeAction threw unexpectedly:`, execErr.message);
+        result = { status: 'error', error: execErr.message, tool: parsed.tool };
+      }
 
       if (result.status === 'approval_required') {
         return {
@@ -287,12 +299,20 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         continue;
       }
 
+      // FIX D14: Only record tool as used after successful execution
+      toolsUsed.push(parsed.tool);
+
+      // FIX C8: Use setImmediate so vault reindex doesn't block the event loop.
+      // Without this, indexVault() blocks all concurrent WebUI/Telegram requests
+      // for several seconds on every vault mutation.
       if (MUTATING_VAULT_TOOLS.includes(parsed.tool)) {
-        try {
-          indexVault();
-        } catch (rErr) {
-          console.log('[rag] Auto reindex after mutation error:', rErr.message);
-        }
+        setImmediate(() => {
+          try {
+            indexVault();
+          } catch (rErr) {
+            console.log('[rag] Background reindex error:', rErr.message);
+          }
+        });
       }
 
       const outputText = truncateOutput(result.output || '(No output)');

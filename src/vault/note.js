@@ -11,13 +11,11 @@ function makeSnippet(body, maxLen = 200) {
   const cleaned = String(body || '')
     .replace(/^#.*$/gm, '')
     .replace(/^---.*$/gm, '')
-    .replace(/\n{2,}/g, '\n')
     .trim();
 
-  const firstPara =
-    cleaned.split('\n').find((line) => line.trim().length > 10) || cleaned;
-
-  return firstPara.slice(0, maxLen).trim();
+  const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const para = lines.find((l) => l.length > 10) || lines.join(' ');
+  return para.slice(0, maxLen).trim();
 }
 
 /**
@@ -62,25 +60,44 @@ function loadNote(filePath) {
 }
 
 /**
- * Simpan teks ke file note (overwrite).
+ * Simpan teks ke file note (atomic write: tmp → rename).
  * Membuat folder induk jika belum ada.
  */
 function saveNote(filePath, content) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(filePath, String(content ?? ''), 'utf-8');
+  const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, String(content ?? ''), 'utf-8');
+    fs.renameSync(tempPath, filePath);
+  } catch (err) {
+    // Clean up temp file if rename fails
+    try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 /**
  * Ubah path relatif vault → path absolut.
+ * SECURITY: Mencegah path traversal (../../) keluar dari vault.
  */
 function resolveNotePath(relativePath) {
-  const vaultDir = getVaultDir();
+  const vaultDir = path.resolve(getVaultDir());
   const cleaned = String(relativePath || '')
     .replace(/^[/\\]+/, '')
     .replace(/\\/g, '/');
 
-  return path.resolve(vaultDir, cleaned);
+  const resolved = path.resolve(vaultDir, cleaned);
+  const rel = path.relative(vaultDir, resolved);
+
+  // Block path traversal outside vault
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(
+      `[SECURITY] Path traversal ditolak: "${relativePath}" berada di luar vault.`
+    );
+  }
+
+  return resolved;
 }
 
 module.exports = {

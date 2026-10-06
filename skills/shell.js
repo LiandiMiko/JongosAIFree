@@ -40,6 +40,12 @@ const BLOCKED_COMMANDS = new Set([
   'sudo',
 ]);
 
+// FIX S7: Add explicit allowlist for termux commands instead of prefix matching
+const SAFE_TERMUX_COMMANDS = new Set([
+  'termux-battery-status',
+  'termux-wifi-connectioninfo',
+]);
+
 function getCommandName(cmd) {
   return cmd.trim().split(/\s+/)[0].toLowerCase();
 }
@@ -52,8 +58,8 @@ function validateShellCommand(cmd) {
     };
   }
 
-  // Cegah command chaining, pipe, redirect,
-  // command substitution, dan background execution.
+  // FIX S7: Block single & (Windows cmd.exe separator), ^ (escape), % (var expansion)
+  // in addition to existing bash-style operators
   const dangerousSyntax = [
     ';',
     '&&',
@@ -66,6 +72,9 @@ function validateShellCommand(cmd) {
     '${',
     '\n',
     '\r',
+    '&',   // Windows cmd.exe command separator
+    '^',   // Windows cmd.exe escape character
+    '%',   // Windows variable expansion (%PATH%, %USERNAME%)
   ];
 
   for (const token of dangerousSyntax) {
@@ -86,7 +95,8 @@ function validateShellCommand(cmd) {
     };
   }
 
-  if (commandName.startsWith('termux-')) {
+  // FIX S7: Use explicit set instead of prefix match to prevent bypass
+  if (SAFE_TERMUX_COMMANDS.has(commandName)) {
     return {
       allowed: true,
     };

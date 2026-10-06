@@ -1,21 +1,21 @@
-const TOOL_RISK = {
-  low: {
+const TOOL_RISK = Object.freeze({
+  low: Object.freeze({
     level: 0,
     label: 'LOW',
-  },
+  }),
 
-  medium: {
+  medium: Object.freeze({
     level: 1,
     label: 'MEDIUM',
-  },
+  }),
 
-  high: {
+  high: Object.freeze({
     level: 2,
     label: 'HIGH',
-  },
-};
+  }),
+});
 
-const TOOL_POLICY = {
+const TOOL_POLICY = Object.freeze({
   ping: 'low',
   remember: 'low',
   'clawd-scan': 'low',
@@ -41,10 +41,12 @@ const TOOL_POLICY = {
   shell: 'high',
   addskill: 'high',
   delskills: 'high',
-};
+});
 
+// FIX Q2: Normalize tool name to lowercase to prevent case-sensitivity escalation
 function getToolRisk(toolName) {
-  return TOOL_POLICY[toolName] || 'high';
+  const key = String(toolName || '').toLowerCase().trim();
+  return TOOL_POLICY[key] || 'high';
 }
 
 function getToolPolicy(toolName) {
@@ -76,3 +78,4 @@ module.exports = {
   getToolPolicy,
   getAllToolPolicies,
 };
+

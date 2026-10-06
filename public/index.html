@@ -460,30 +460,54 @@
       inputEl.focus();
     }
 
+    // FIX S4: Helper to escape HTML special chars before inserting into innerHTML
+    function escapeHtml(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function addApprovalCard(data) {
       const div = document.createElement('div');
       div.className = 'msg approval';
       div.id = `approval-card-${data.requestId}`;
-      
+
+      // FIX S4: Escape all user-controlled values before inserting into innerHTML
       const argsText = typeof data.args === 'object' ? JSON.stringify(data.args, null, 2) : String(data.args || '');
+      const safeArgs = escapeHtml(argsText);
+      const safeTool = escapeHtml(data.tool);
+      const safePolicy = escapeHtml(data.policy?.label || 'HIGH');
+      const safeReqId = escapeHtml(data.requestId);
 
       div.innerHTML = `
         <div style="color: #f4a460; font-weight: bold; font-size: 13px; margin-bottom: 6px;">🔐 Tool High-Risk Membutuhkan Approval</div>
         <div style="font-size: 12px; margin-bottom: 8px;">
-          <div><strong>Tool:</strong> <code style="color:#4ecdc4;">${data.tool}</code></div>
-          <div><strong>Risk Level:</strong> <span style="color:#ff6b6b;font-weight:bold;">${data.policy?.label || 'HIGH'}</span></div>
+          <div><strong>Tool:</strong> <code style="color:#4ecdc4;">${safeTool}</code></div>
+          <div><strong>Risk Level:</strong> <span style="color:#ff6b6b;font-weight:bold;">${safePolicy}</span></div>
           <div style="margin-top: 4px;"><strong>Argumen:</strong></div>
-          <pre style="background:#0d0f14; padding:6px; border-radius:4px; font-size:11px; margin-top:2px; max-height:150px; overflow:auto;">${argsText}</pre>
+          <pre style="background:#0d0f14; padding:6px; border-radius:4px; font-size:11px; margin-top:2px; max-height:150px; overflow:auto;">${safeArgs}</pre>
         </div>
         <div class="approval-actions" style="margin-top: 10px;">
-          <button class="approval-btn allow" onclick="handleWebApproval('${data.requestId}', 'approve')">✅ ALLOW (Setujui)</button>
-          <button class="approval-btn deny" onclick="handleWebApproval('${data.requestId}', 'deny')">❌ DENY (Tolak)</button>
+          <button class="approval-btn allow" data-request-id="${safeReqId}" data-action="approve">✅ ALLOW (Setujui)</button>
+          <button class="approval-btn deny" data-request-id="${safeReqId}" data-action="deny">❌ DENY (Tolak)</button>
         </div>
       `;
+
+      // FIX S4: Use event listeners with data attributes instead of inline onclick
+      // to prevent requestId injection breaking out of string attribute context
+      div.querySelectorAll('.approval-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          handleWebApproval(data.requestId, btn.dataset.action);
+        });
+      });
 
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+
 
     async function handleWebApproval(requestId, action) {
       const card = document.getElementById(`approval-card-${requestId}`);

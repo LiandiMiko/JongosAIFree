@@ -6,8 +6,9 @@ const {
   continueAgentAfterApproval,
 } = require('./agent-loop');
 const { addMessage } = require('./memory');
-const { listPendingApprovals, denyRequest } = require('./approval');
+const { listPendingApprovals, denyRequest, getApproval } = require('./approval');
 const { indexVault, loadIndex } = require('./rag');
+
 
 /**
  * Start the Web UI Express server
@@ -62,8 +63,8 @@ function startWebUI(config) {
   // Approvals endpoints
   app.get('/api/approvals', (req, res) => {
     try {
-      const sessionId = req.query.sessionId || 'anonymous';
-      const userId = `web-${sessionId}`;
+      // If sessionId provided, filter by it; otherwise return all pending (dashboard view)
+      const userId = req.query.sessionId ? `web-${req.query.sessionId}` : null;
       const pending = listPendingApprovals(userId);
       res.json({ approvals: pending });
     } catch (err) {
@@ -77,7 +78,9 @@ function startWebUI(config) {
       return res.status(400).json({ error: 'requestId required' });
     }
 
-    const userId = `web-${sessionId || 'anonymous'}`;
+    // If sessionId omitted (dashboard call), look up the pending approval to get its userId
+    const existing = getApproval(requestId);
+    const userId = sessionId ? `web-${sessionId}` : (existing?.userId || 'web-anonymous');
 
     try {
       const execResult = await executeApprovedRequest(requestId, userId, { config });
@@ -86,6 +89,20 @@ function startWebUI(config) {
           userId,
           source: 'webui',
         });
+
+        // FIX C17: Handle chained approvals properly if continuation triggered another high-risk tool
+        if (finalRes.status === 'approval_required') {
+          return res.json({
+            ok: true,
+            status: 'approval_required',
+            requestId: finalRes.requestId,
+            tool: finalRes.tool,
+            args: finalRes.args,
+            policy: finalRes.policy,
+            message: finalRes.message,
+          });
+        }
+
         return res.json({
           ok: true,
           status: 'approved',
@@ -105,7 +122,8 @@ function startWebUI(config) {
       return res.status(400).json({ error: 'requestId required' });
     }
 
-    const userId = `web-${sessionId || 'anonymous'}`;
+    const existing = getApproval(requestId);
+    const userId = sessionId ? `web-${sessionId}` : (existing?.userId || 'web-anonymous');
     const result = denyRequest(requestId, userId);
 
     if (result.success) {
@@ -114,6 +132,7 @@ function startWebUI(config) {
       res.status(400).json({ error: result.reason || 'Gagal menolak approval.' });
     }
   });
+
 
   // RAG endpoints
   app.get('/api/rag/stats', (req, res) => {

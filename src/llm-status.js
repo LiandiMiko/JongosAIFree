@@ -39,8 +39,28 @@ function ensureProvider(provider, model, keyId = null) {
   return providers.get(key);
 }
 
+// FIX D6: Debounce state persistence to eliminate event-loop blocking on every token update
+let persistTimer = null;
+
 function schedulePersist() {
-  persistState();
+  if (persistTimer) return;
+  persistTimer = setTimeout(async () => {
+    persistTimer = null;
+    try {
+      const obj = {};
+      for (const [key, entry] of providers) {
+        obj[key] = entry;
+      }
+      await fs.promises.mkdir(path.dirname(STATE_FILE), { recursive: true });
+      const tmpFile = `${STATE_FILE}.tmp`;
+      await fs.promises.writeFile(tmpFile, JSON.stringify(obj, null, 2), 'utf-8');
+      await fs.promises.rename(tmpFile, STATE_FILE);
+    } catch (e) {
+      console.warn('[llm-status] persist failed:', e.message);
+    }
+  }, 1000);
+  // Do not block process exit
+  if (persistTimer.unref) persistTimer.unref();
 }
 
 function persistState() {
@@ -50,11 +70,14 @@ function persistState() {
       obj[key] = entry;
     }
     fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(obj, null, 2));
+    const tmpFile = `${STATE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(obj, null, 2), 'utf-8');
+    fs.renameSync(tmpFile, STATE_FILE);
   } catch (e) {
     console.warn('[llm-status] persist failed:', e.message);
   }
 }
+
 
 function loadState() {
   try {
@@ -191,8 +214,13 @@ function getProviderStatus(provider, model, keyId = null) {
 }
 
 function getAllProviderStatus() {
-  return Array.from(providers.values()).map((entry) => ({ ...entry }));
+  // FIX Q19: Deep clone usage object so callers cannot mutate internal Map state
+  return Array.from(providers.values()).map((entry) => ({
+    ...entry,
+    usage: entry.usage ? { ...entry.usage } : { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  }));
 }
+
 
 function clearProviderStatus() {
   providers.clear();

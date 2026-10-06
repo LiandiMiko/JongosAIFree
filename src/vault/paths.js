@@ -18,7 +18,11 @@ function getVaultDir() {
   const fromEnv = process.env.OBSIDIAN_VAULT;
 
   if (fromEnv && String(fromEnv).trim()) {
-    return path.resolve(String(fromEnv).trim());
+    const trimmed = String(fromEnv).trim();
+    // Resolve relative paths against project root, not process.cwd()
+    return path.isAbsolute(trimmed)
+      ? trimmed
+      : path.resolve(__dirname, '..', '..', trimmed);
   }
 
   return path.resolve(__dirname, '..', '..', 'memory', 'second-brain');
@@ -30,7 +34,8 @@ function getVaultDir() {
 function vaultExists() {
   const dir = getVaultDir();
   try {
-    return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    const stat = fs.statSync(dir, { throwIfNoEntry: false });
+    return Boolean(stat && stat.isDirectory());
   } catch {
     return false;
   }

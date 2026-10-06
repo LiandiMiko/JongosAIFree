@@ -264,7 +264,15 @@ function extractTickers(text) {
       }
     }
   }
-  if (/\b(btc|bitcoin)\b/i.test(s)) found.add('BTCUSDT');
+  // FIX D16: BTC/Bitcoin now requires price keywords — consistent with ETH treatment.
+  // Previously ANY mention of "bitcoin" (e.g. "Siapa penemu bitcoin?") triggered realtime intent,
+  // bypassing RAG and forcing a Binance price fetch.
+  if (
+    /\b(btc|bitcoin)\b/i.test(s) &&
+    /\b(harga|price|kurs|rate|berapa|nilai|spot|ticker|pasar|market)\b/i.test(s)
+  ) {
+    found.add('BTCUSDT');
+  }
   if (/\b(eth|ethereum)\b/i.test(s) && !found.has('ETHUSDT')) {
     if (/\b(harga|price|berapa)\b/i.test(s)) found.add('ETHUSDT');
   }
@@ -467,7 +475,12 @@ function buildAgentSystemPrompt(
 function parseAgentResponse(rawText) {
   let cleaned = String(rawText || '').trim();
 
-  if (cleaned.startsWith('```')) {
+  // FIX D17: Strip code fences globally (not just when they're at position 0).
+  // LLMs sometimes prefix responses with text before the code fence.
+  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    cleaned = fenceMatch[1].trim();
+  } else if (cleaned.startsWith('```')) {
     cleaned = cleaned
       .replace(/^```[a-z]*\r?\n?/i, '')
       .replace(/\r?\n?```$/i, '')
@@ -476,8 +489,10 @@ function parseAgentResponse(rawText) {
 
   try {
     return JSON.parse(cleaned);
-  } catch (err) {
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  } catch {
+    // FIX D17: Use non-greedy extraction to avoid matching from first { to last }
+    // which would capture unrelated brace pairs in surrounding text.
+    const jsonMatch = cleaned.match(/\{[\s\S]*?\}(?=\s*$)/) || cleaned.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
         return JSON.parse(jsonMatch[0]);
@@ -488,6 +503,7 @@ function parseAgentResponse(rawText) {
     return null;
   }
 }
+
 
 module.exports = {
   buildToolManifest,

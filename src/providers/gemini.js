@@ -32,9 +32,15 @@ function buildGeminiRequest(messages, options = {}) {
     ],
   }));
 
+  // FIX Q4: Gemini API returns 400 if contents is empty (system-only messages)
+  if (contents.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: 'Mulai.' }] });
+  }
+
+  // FIX Q3: Respect caller-provided options instead of hardcoded values
   const generationConfig = {
-    maxOutputTokens: 2048,
-    temperature: 0.7,
+    maxOutputTokens: options.maxTokens || options.max_tokens || 2048,
+    temperature: options.temperature !== undefined ? options.temperature : 0.7,
   };
 
   if (options.json) {
@@ -60,6 +66,7 @@ function buildGeminiRequest(messages, options = {}) {
 
   return body;
 }
+
 
 function isQuotaError(status, data) {
   const msg = (data?.error?.message || JSON.stringify(data || {})).toLowerCase();

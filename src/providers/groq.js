@@ -20,8 +20,8 @@ async function callGroq(messages, model, options = {}) {
       {
         model,
         messages,
-        max_tokens: 2048,
-        temperature: 0.7,
+        max_tokens: options.maxTokens || options.max_tokens || 2048,
+        temperature: options.temperature !== undefined ? options.temperature : 0.7,
         ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       },
       {
@@ -53,11 +53,18 @@ async function callGroq(messages, model, options = {}) {
   } catch (error) {
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers?.['retry-after'];
-      const err = new Error(
-        `Groq rate limit: ${error.response?.data?.error?.message || 'unknown'}`
-      );
+      const retrySec = retryAfter ? Number(retryAfter) : null;
+      const msg = error.response?.data?.error?.message || 'Groq rate limit';
+
+      // FIX C1: actually call markRateLimited so router knows Groq is rate-limited
+      markRateLimited('groq', model, {
+        retryAfter: retrySec,
+        lastError: msg,
+      });
+
+      const err = new Error(`Groq rate limit: ${msg}`);
       err.quota = true;
-      err.retryAfter = retryAfter ? Number(retryAfter) : null;
+      err.retryAfter = retrySec;
       throw err;
     }
     throw error;

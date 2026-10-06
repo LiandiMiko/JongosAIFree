@@ -8,13 +8,15 @@ const {
   metadataBoost,
 } = require('./embedder');
 
-const DATA_DIR = path.join(process.cwd(), 'data', 'rag');
+// FIX C14: Use __dirname for reliable path resolution instead of process.cwd()
+const DATA_DIR = path.join(__dirname, '..', '..', 'data', 'rag');
 const INDEX_FILE = path.join(DATA_DIR, 'index.json');
 
+// FIX D9: In-memory cache to avoid repeated disk reads on every query
+let cachedIndex = null;
+
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function saveIndex(chunks) {
@@ -27,21 +29,37 @@ function saveIndex(chunks) {
     };
   });
 
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(indexed, null, 2), 'utf-8');
+  // FIX C13 & D8: Atomic write (tmp → rename) + compact JSON (no pretty-print)
+  const tmpFile = `${INDEX_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(indexed), 'utf-8');
+  fs.renameSync(tmpFile, INDEX_FILE);
+
+  // Invalidate and update cache
+  cachedIndex = indexed;
+
   return indexed.length;
 }
 
 function loadIndex() {
+  // FIX D9: Return from cache if available
+  if (cachedIndex !== null) return cachedIndex;
+
   if (!fs.existsSync(INDEX_FILE)) {
     return [];
   }
   try {
     const raw = fs.readFileSync(INDEX_FILE, 'utf-8');
-    return JSON.parse(raw);
+    cachedIndex = JSON.parse(raw);
+    return cachedIndex;
   } catch (err) {
     console.error('[rag] Gagal membaca index.json:', err.message);
     return [];
   }
+}
+
+/** Invalidate the in-memory index cache (call after reindex). */
+function invalidateCache() {
+  cachedIndex = null;
 }
 
 /**
@@ -49,6 +67,7 @@ function loadIndex() {
  * score = 0.45 * cosine(tf) + 0.35 * keywordCoverage + 0.20 * metadataBoost
  */
 function searchIndex(query, topK = 5) {
+  // FIX Q18: Use a single loadIndex call; pass preloaded index directly
   const index = loadIndex();
   if (!index.length) return [];
 
@@ -76,6 +95,7 @@ module.exports = {
   saveIndex,
   loadIndex,
   searchIndex,
+  invalidateCache,
   INDEX_FILE,
   DATA_DIR,
 };

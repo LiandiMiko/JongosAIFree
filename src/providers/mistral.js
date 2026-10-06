@@ -19,6 +19,27 @@ function isQuotaError(status, data) {
   );
 }
 
+/**
+ * FIX C4: Safely parse rate-limit reset header.
+ * Handles relative seconds (< year 2001 epoch), unix seconds, unix ms, ISO strings.
+ * Returns null instead of crashing with RangeError on invalid values.
+ */
+function parseResetAt(raw) {
+  if (!raw) return null;
+  const num = Number(raw);
+  if (!Number.isNaN(num) && num > 0) {
+    // If value < year 2001 epoch (~978307200), treat as relative seconds from now
+    // This fixes the 1970 epoch semantic bug (small values like 60 → 1970-01-01)
+    const ms = num < 978307200 ? Date.now() + num * 1000
+      : num > 1e11 ? num   // already ms
+      : num * 1000;        // seconds → ms
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 async function callMistral(messages, model, options = {}) {
   const apiKey = getApiKey();
 
@@ -32,8 +53,8 @@ async function callMistral(messages, model, options = {}) {
       {
         model,
         messages,
-        max_tokens: 2048,
-        temperature: 0.7,
+        max_tokens: options.maxTokens || options.max_tokens || 2048,
+        temperature: options.temperature !== undefined ? options.temperature : 0.7,
         ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       },
       {
@@ -54,7 +75,6 @@ async function callMistral(messages, model, options = {}) {
     const headers = response.headers || {};
     const limit = headers['x-ratelimit-limit'] ? Number(headers['x-ratelimit-limit']) : null;
     const remaining = headers['x-ratelimit-remaining'] ? Number(headers['x-ratelimit-remaining']) : null;
-    const reset = headers['x-ratelimit-reset'] ? Number(headers['x-ratelimit-reset']) : null;
 
     const usage = response.data?.usage || {};
 
@@ -68,7 +88,7 @@ async function callMistral(messages, model, options = {}) {
       limit,
       remaining,
       used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
-      resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+      resetAt: parseResetAt(headers['x-ratelimit-reset']),
     });
 
     return text;
@@ -85,13 +105,12 @@ async function callMistral(messages, model, options = {}) {
         const headers = error.response.headers || {};
         const limit = headers['x-ratelimit-limit'] ? Number(headers['x-ratelimit-limit']) : null;
         const remaining = headers['x-ratelimit-remaining'] ? Number(headers['x-ratelimit-remaining']) : null;
-        const reset = headers['x-ratelimit-reset'] ? Number(headers['x-ratelimit-reset']) : null;
 
         markRateLimited('mistral', model, {
           limit,
           remaining,
           used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
-          resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+          resetAt: parseResetAt(headers['x-ratelimit-reset']),
           lastError: data?.error?.message || 'Mistral rate limit/quota',
         });
 

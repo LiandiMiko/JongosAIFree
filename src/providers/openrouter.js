@@ -19,6 +19,27 @@ function isQuotaError(status, data) {
   );
 }
 
+/**
+ * FIX C3: Safely parse rate-limit reset header to ISO string.
+ * Handles: unix ms, unix seconds, relative seconds, ISO strings.
+ * Returns null if value is invalid instead of crashing with RangeError.
+ */
+function parseResetAt(raw) {
+  if (!raw) return null;
+  const num = Number(raw);
+  if (!Number.isNaN(num) && num > 0) {
+    // If value < year 2001 epoch (~978307200), treat as relative seconds from now
+    const ms = num < 978307200 ? Date.now() + num * 1000
+      : num > 1e11 ? num  // already milliseconds
+      : num * 1000;       // seconds → milliseconds
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  // Try as ISO / date string
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 async function callOpenRouter(messages, model, options = {}) {
   const apiKey = getApiKey();
 
@@ -32,15 +53,16 @@ async function callOpenRouter(messages, model, options = {}) {
       {
         model,
         messages,
-        max_tokens: 2048,
+        max_tokens: options.maxTokens || options.max_tokens || 2048,
         ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       },
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://github.com/joymadhu49/clawd-agent',
-          'X-Title': 'Clawd Agent',
+          // FIX Q6: Use project identity instead of upstream fork
+          'HTTP-Referer': process.env.APP_REFERER || 'https://github.com/LiandiMiko/JongosAIFree',
+          'X-Title': process.env.APP_NAME || 'JongosAIFree',
         },
         timeout: 90000,
       }
@@ -63,13 +85,12 @@ async function callOpenRouter(messages, model, options = {}) {
     const headers = response.headers || {};
     const limit = headers['x-ratelimit-limit'] ? Number(headers['x-ratelimit-limit']) : null;
     const remaining = headers['x-ratelimit-remaining'] ? Number(headers['x-ratelimit-remaining']) : null;
-    const reset = headers['x-ratelimit-reset'] ? Number(headers['x-ratelimit-reset']) : null;
 
     markSuccess('openrouter', model, {
       limit,
       remaining,
       used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
-      resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+      resetAt: parseResetAt(headers['x-ratelimit-reset']),
     });
 
     return text;
@@ -90,14 +111,13 @@ async function callOpenRouter(messages, model, options = {}) {
         const resetRaw = responseHeaders['x-ratelimit-reset'] || quotaHeaders['X-RateLimit-Reset'];
         const limit = limitRaw != null ? Number(limitRaw) : null;
         const remaining = remainingRaw != null ? Number(remainingRaw) : null;
-        const reset = resetRaw != null ? Number(resetRaw) : null;
         const message = data?.error?.message || 'OpenRouter rate limit/quota';
 
         markRateLimited('openrouter', model, {
           limit,
           remaining,
           used: limit !== null && remaining !== null ? Math.max(0, limit - remaining) : null,
-          resetAt: reset ? new Date(reset > 100000000000 ? reset : reset * 1000).toISOString() : null,
+          resetAt: parseResetAt(resetRaw),
           lastError: message,
         });
 

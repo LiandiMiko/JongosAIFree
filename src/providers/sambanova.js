@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { recordUsage, markSuccess } = require('../llm-status');
+const { recordUsage, markSuccess, markRateLimited } = require('../llm-status');
 
 const SAMBANOVA_URL = process.env.SAMBANOVA_URL || 'https://api.sambanova.ai/v1';
 
@@ -20,8 +20,8 @@ async function callSambaNova(messages, model, options = {}) {
       {
         model,
         messages,
-        max_tokens: 2048,
-        temperature: 0.7,
+        max_tokens: options.maxTokens || options.max_tokens || 2048,
+        temperature: options.temperature !== undefined ? options.temperature : 0.7,
         ...(options.json ? { response_format: { type: 'json_object' } } : {}),
       },
       {
@@ -53,11 +53,18 @@ async function callSambaNova(messages, model, options = {}) {
   } catch (error) {
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers?.['retry-after'];
-      const err = new Error(
-        `SambaNova rate limit: ${error.response?.data?.error?.message || 'unknown'}`
-      );
+      const retrySec = retryAfter ? Number(retryAfter) : null;
+      const msg = error.response?.data?.error?.message || 'SambaNova rate limit';
+
+      // FIX C2: import & call markRateLimited so router/dashboard know SambaNova is rate-limited
+      markRateLimited('sambanova', model, {
+        retryAfter: retrySec,
+        lastError: msg,
+      });
+
+      const err = new Error(`SambaNova rate limit: ${msg}`);
       err.quota = true;
-      err.retryAfter = retryAfter ? Number(retryAfter) : null;
+      err.retryAfter = retrySec;
       throw err;
     }
     throw error;

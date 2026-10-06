@@ -13,10 +13,12 @@
     "dev": "node --watch index.js",
     "reindex": "node scripts/reindex-vault.js",
     "import": "node scripts/import-ai-chats.js",
+    "test": "node scripts/test-intent.js && node scripts/test-rag.js && node scripts/test-routing.js",
     "test:intent": "node scripts/test-intent.js",
     "test:rag": "node scripts/test-rag.js",
     "test:routing": "node scripts/test-routing.js"
   },
+
   "keywords": [
     "ai",
     "agent",

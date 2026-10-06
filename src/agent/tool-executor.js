@@ -37,7 +37,8 @@ function validateAgentAction(parsed) {
     return { valid: false, reason: 'Response bukan JSON object valid' };
   }
 
-  const { action, reply, tool, args } = parsed;
+  const { action, reply, tool } = parsed;
+  let { args } = parsed;
 
   if (!['final', 'tool'].includes(action)) {
     return { valid: false, reason: `Action "${action}" tidak dikenal. Gunakan "final" atau "tool"` };
@@ -63,8 +64,20 @@ function validateAgentAction(parsed) {
 
     const schema = TOOL_ARG_SCHEMAS[tool];
     if (schema) {
+      // FIX D12: Normalize args BEFORE validation so LLM-provided 'path' aliases 'note'
+      // Previously normalizeToolArgs ran AFTER validateAgentAction, causing valid LLM
+      // responses with {path: "..."} to fail with "Argumen 'note' wajib diisi"
+      args = normalizeToolArgs(tool, args || {});
+      parsed.args = args;
+
+      // FIX D13: Allow omitting 'args' field when no required args exist
       if (!args || typeof args !== 'object' || Array.isArray(args)) {
-        return { valid: false, reason: `Tool "${tool}" membutuhkan field "args" bertipe object` };
+        if (schema.required.length === 0) {
+          args = {};
+          parsed.args = {};
+        } else {
+          return { valid: false, reason: `Tool "${tool}" membutuhkan field "args" bertipe object` };
+        }
       }
 
       for (const field of schema.required) {
@@ -91,6 +104,7 @@ function validateAgentAction(parsed) {
 
   return { valid: false, reason: 'Struktur action tidak valid' };
 }
+
 
 function convertActionToToolCallString(parsed) {
   const { tool, args = {} } = parsed;
@@ -331,8 +345,8 @@ async function executeApprovedTool(request, meta = {}) {
   } catch (err) {
     return {
       status: 'error',
-      message: err.message,
       error: err.message,
+      message: err.message, // FIX Q13: consistent with executeAction return shape
       tool,
     };
   }
