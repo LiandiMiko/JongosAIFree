@@ -26,17 +26,29 @@ function findSnippet(content, query) {
 
 function scoreNote(filePath, content, query) {
   const name = path.basename(filePath, '.md').toLowerCase();
-  const q = String(query || '').toLowerCase();
+  const rel = String(filePath || '').toLowerCase();
+  const q = String(query || '').toLowerCase().trim();
   const lower = String(content || '').toLowerCase();
+  // also try individual query words (min 3 chars)
+  const words = q.split(/\s+/).filter((w) => w.length >= 3);
 
   let score = 0;
 
   if (name === q) score += 100;
   else if (name.includes(q)) score += 50;
+  else if (words.some((w) => name.includes(w))) score += 40;
+
+  if (rel.includes(q) || words.some((w) => rel.includes(w))) score += 25;
 
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const occurrences = (lower.match(new RegExp(escaped, 'g')) || []).length;
   score += Math.min(occurrences * 5, 40);
+
+  for (const w of words) {
+    const esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const c = (lower.match(new RegExp(esc, 'g')) || []).length;
+    score += Math.min(c * 3, 20);
+  }
 
   if (lower.slice(0, 200).includes(q)) score += 15;
 

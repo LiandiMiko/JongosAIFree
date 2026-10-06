@@ -58,8 +58,10 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     console.log(`[rag] Skip RAG — intent=${intent.type}`);
   } else {
     try {
-      ragContext = retrieveContext(userMessage, 3);
-      if (ragContext) ragUsed = true;
+      ragContext = retrieveContext(userMessage, 4);
+      if (ragContext && !ragContext.includes('Index kosong')) {
+        ragUsed = true;
+      }
     } catch (err) {
       console.log('[rag] Skipped context retrieval:', err.message);
     }
@@ -75,6 +77,22 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   });
   if (ragContext && !intent.skipRag) {
     systemPrompt += `\n\n${ragContext}`;
+    if (intent.type === 'vault' && ragUsed) {
+      systemPrompt +=
+        '\n\n[SISTEM] RAG sudah menyertakan cuplikan vault. ' +
+        'Jika cuplikan relevan, jawab FINAL langsung tanpa obsidian-search. ' +
+        'Panggil obsidian-search paling banyak 1 kali, hanya jika RAG jelas tidak cukup.';
+    }
+  }
+  if (intent.progressLog) {
+    const pl = intent.progressLog;
+    systemPrompt +=
+      `\n\n[SISTEM PROGRESS LOG]\n` +
+      `Target note: ${pl.note}\n` +
+      `Isi entry: - [TANGGAL_HARI_INI] ${pl.entry}\n` +
+      `Langkah: (1) obsidian-append dengan note+content. ` +
+      `(2) Jika "Note tidak ditemukan" → obsidian-create dengan note+content yang sama, lalu final. ` +
+      `JANGAN obsidian-search. JANGAN tool lain.`;
   }
   if (prefetchedPrices && prefetchedPrices.ok) {
     systemPrompt +=
@@ -178,6 +196,24 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
               : 'Jawab final langsung jika memungkinkan.'),
         });
         continue;
+      }
+
+      // Cap noisy tools per request (search spam burns LLM quota)
+      const TOOL_MAX = { 'obsidian-search': 1, fetch: 3 };
+      const maxForTool = TOOL_MAX[parsed.tool];
+      if (maxForTool != null) {
+        const used = toolsUsed.filter((t) => t === parsed.tool).length;
+        if (used >= maxForTool) {
+          console.log(`[agent-loop] Cap tool "${parsed.tool}" (${used}/${maxForTool})`);
+          messages.push({ role: 'assistant', content: rawResponse });
+          messages.push({
+            role: 'user',
+            content:
+              `Eksekusi Tool Ditolak: "${parsed.tool}" sudah dipanggil ${used}x di request ini (batas ${maxForTool}). ` +
+              `Jawab FINAL sekarang berdasarkan hasil tool sebelumnya / RAG. Jangan panggil tool yang sama lagi.`,
+          });
+          continue;
+        }
       }
 
       // Prevent identical tool+args spam (e.g. fetch same URL 3x)

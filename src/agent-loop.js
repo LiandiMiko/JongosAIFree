@@ -139,7 +139,8 @@ async function continueAgentAfterApproval(execResult, config = {}, meta = {}) {
       userId,
       source: meta.source || 'approval',
       history: continuation.history || [],
-      step: continuation.step || 0,
+      // Reset step budget after approval so multi-step (create→append→final) can finish
+      step: 0,
       toolsUsed: continuation.toolsUsed || [execResult.tool],
       toolResult: {
         tool: execResult.tool,

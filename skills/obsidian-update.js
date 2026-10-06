@@ -17,7 +17,7 @@ function parseInput(text) {
     try {
       const obj = JSON.parse(raw);
       return {
-        notePath: String(obj.path || '').trim(),
+        notePath: String(obj.path || obj.note || '').trim(),
         content: String(obj.content || ''),
       };
     } catch {

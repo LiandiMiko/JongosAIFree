@@ -217,8 +217,20 @@ function checkHardToolPolicy(tool, args = {}, meta = {}) {
  *   { status: 'error', error }
  *   { status: 'approval_required', requestId, tool, args, policy, message }
  */
+function normalizeToolArgs(tool, args = {}) {
+  const a = { ...args };
+  // Skills expect `path`; agent schema often sends `note`
+  if (['obsidian-append', 'obsidian-create', 'obsidian-update', 'obsidian-read'].includes(tool)) {
+    if (!a.path && a.note) a.path = a.note;
+    if (!a.note && a.path) a.note = a.path;
+  }
+  return a;
+}
+
 async function executeAction(parsed, meta = {}) {
-  const { tool, args = {} } = parsed;
+  const tool = parsed.tool;
+  const args = normalizeToolArgs(tool, parsed.args || {});
+  parsed = { ...parsed, args };
   const toolCallString = convertActionToToolCallString(parsed);
   const userId = meta.userId || meta.user || 'anonymous';
 
@@ -333,4 +345,5 @@ module.exports = {
   executeAction,
   executeApprovedTool,
   checkHardToolPolicy,
+  normalizeToolArgs,
 };

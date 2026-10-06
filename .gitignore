@@ -28,4 +28,5 @@ memory/second-brain/**
 # OS / editor
 .DS_Store
 *.log
+*.patch
 node_modules/

@@ -8,6 +8,28 @@ function buildToolManifest() {
  * Unified intent classifier.
  * Types: status | time | realtime | vault | shell | general
  */
+
+/** Deteksi permintaan catat progres / knowledge log project. */
+function isProgressLogIntent(t) {
+  const s = String(t || '').toLowerCase();
+  if (!s.trim()) return false;
+  return (
+    /\b(catat\s+progres|update\s+knowledge|simpan\s+ke\s+knowledge|log\s+progres|progress\s+log)\b/i.test(
+      s
+    ) ||
+    /^catat\s+progres\s*:/i.test(s.trim())
+  );
+}
+
+function extractProgressLogContent(text) {
+  const raw = String(text || '').trim();
+  const m = raw.match(
+    /^(?:catat\s+progres|update\s+knowledge|simpan\s+ke\s+knowledge|log\s+progres)\s*[:\-–]\s*(.+)$/i
+  );
+  if (m) return m[1].trim();
+  return raw;
+}
+
 function classifyIntent(text) {
   const raw = String(text || '').trim();
   const t = raw.toLowerCase();
@@ -43,6 +65,27 @@ function classifyIntent(text) {
     result.blockTools = ['shell', 'fetch'];
     result.preferTools = [];
     result.hints.push('Cukup pakai waktu server; tidak perlu shell/fetch/vault.');
+    return result;
+  }
+
+  // --- PROGRESS LOG (subset vault, more specific)
+  if (isProgressLogIntent(t)) {
+    const entry = extractProgressLogContent(raw);
+    result.type = 'vault';
+    result.confidence = 'high';
+    result.skipRag = true;
+    result.preferTools = ['obsidian-append', 'obsidian-create'];
+    result.blockTools = ['shell', 'fetch', 'obsidian-search'];
+    result.progressLog = {
+      note: '04 Knowledge/JongosAIFree.md',
+      entry,
+    };
+    result.hints.push(
+      'PROGRESS LOG: Jangan search. Langsung obsidian-append (atau create jika belum ada).'
+    );
+    result.hints.push(
+      `Args WAJIB: {"note":"04 Knowledge/JongosAIFree.md","content":"- [TANGGAL_HARI_INI] ${entry.replace(/"/g, "'")}"}`
+    );
     return result;
   }
 
@@ -387,6 +430,13 @@ function buildAgentSystemPrompt(
     '7. Setelah fetch BERHASIL (dapat JSON/harga), WAJIB langsung action "final". JANGAN fetch ulang URL yang sama atau sumber lain kecuali hasil error/gagal.',
     '8. JANGAN panggil tool yang sama dengan args yang sama dua kali. Satu fetch sukses = langsung jawab.',
     '9. Jawaban harga: sebutkan simbol, harga, sumber URL, dan waktu server.',
+    '10. PROGRESS / KNOWLEDGE LOG: jika user bilang catat progres / log ini / update knowledge tentang JongosAIFree/Paijo/Yanto → '
+      + 'append ke note path \"04 Knowledge/JongosAIFree.md\". '
+      + 'Args WAJIB: {\"note\":\"04 Knowledge/JongosAIFree.md\",\"content\":\"- [YYYY-MM-DD] ...\"} '
+      + '(field note ATAU path, keduanya diterima). '
+      + 'Jika note belum ada: obsidian-create dulu dengan note+content yang sama, lalu append. '
+      + 'Tanggal dari WAKTU SERVER. Jangan buat Progress Log.md terpisah.',
+    '11. Jangan mengarang isi vault. Jika RAG tidak relevan, bilang tidak menemukan di vault lalu tawarkan search.',
   ].join('\n');
 }
 
@@ -428,4 +478,6 @@ module.exports = {
   isTimeOnlyIntent,
   isShellIntent,
   extractTickers,
+  isProgressLogIntent,
+  extractProgressLogContent,
 };
