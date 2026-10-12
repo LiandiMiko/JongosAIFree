@@ -19,6 +19,7 @@ const TOOL_POLICY = Object.freeze({
   ping: 'low',
   remember: 'low',
   'clawd-scan': 'low',
+  'agent-plan': 'low',
 
   fetch: 'medium',
   'device-info': 'medium',
@@ -78,4 +79,3 @@ module.exports = {
   getToolPolicy,
   getAllToolPolicies,
 };
-

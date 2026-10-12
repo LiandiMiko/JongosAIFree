@@ -30,6 +30,14 @@ const TOOL_ARG_SCHEMAS = {
   delskills: { required: ['name'], types: { name: 'string' } },
   remember: { required: ['fact'], types: { fact: 'string' } },
   'clawd-scan': { required: [], types: {} },
+  'agent-plan': {
+    required: [],
+    types: {
+      action: 'string',
+      goal: 'string',
+      steps: 'string',
+    },
+  },
 };
 
 function validateAgentAction(parsed) {
@@ -132,6 +140,17 @@ function convertActionToToolCallString(parsed) {
   if (tool === 'clawd-scan') return `clawd-scan`;
   if (tool === 'addskill') return `addskill: ${JSON.stringify(args)}`;
   if (tool === 'delskills') return `delskills: ${args.name || ''}`;
+  if (tool === 'agent-plan') {
+    const action = String(args.action || 'show').toLowerCase();
+    if (action === 'clear') return 'plan clear';
+    if (action === 'show' || action === 'list') return 'plan';
+    if (action === 'create') {
+      const goal = args.goal || '';
+      const steps = args.steps || '';
+      return `plan: ${goal} | ${steps}`;
+    }
+    return 'plan';
+  }
 
   return `${tool}: ${JSON.stringify(args)}`;
 }

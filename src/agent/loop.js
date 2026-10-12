@@ -7,6 +7,12 @@ const {
 } = require('./decision');
 const { validateAgentAction, executeAction } = require('./tool-executor');
 const { retrieveContext, indexVault } = require('../rag');
+const { loadPlan, advancePlanAfterTool } = require('./plan-store');
+const {
+  formatPlanForPrompt,
+  getNextStep,
+  buildPlanReflectMessage,
+} = require('./plan');
 
 const MUTATING_VAULT_TOOLS = [
   'obsidian-create',
@@ -102,6 +108,23 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       `JANGAN panggil tool fetch. JANGAN ganti ke PAXG/XAUT/token lain.`;
   }
 
+  // Inject active multi-step plan (if any)
+  try {
+    const activePlan = loadPlan(userId);
+    if (activePlan && activePlan.status === 'active') {
+      const planBlock = formatPlanForPrompt(activePlan);
+      if (planBlock) {
+        systemPrompt += `\n\n${planBlock}`;
+        const next = getNextStep(activePlan);
+        console.log(
+          `[agent-loop] Active plan ${activePlan.id} next=${next ? next.id : '-'}`
+        );
+      }
+    }
+  } catch (planErr) {
+    console.log('[agent-loop] plan inject skipped:', planErr.message);
+  }
+
   const priorHistory = Array.isArray(meta.history) ? meta.history : [];
   if (priorHistory.length) {
     console.log(`[agent-loop] History: ${priorHistory.length} prior message(s)`);
@@ -140,6 +163,30 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   while (step < maxSteps) {
     step++;
     console.log(`[agent-loop] Step ${step}/${maxSteps}`);
+
+    if (step >= maxSteps) {
+      // Last iteration handled by loop condition; no-op.
+    } else if (step === maxSteps - 1) {
+      try {
+        const planNow = loadPlan(userId);
+        if (planNow) {
+          messages.push({
+            role: 'user',
+            content:
+              buildPlanReflectMessage(planNow) +
+              '\n\n[SISTEM] Ini mendekati batas step. Prioritaskan action "final".',
+          });
+        } else {
+          messages.push({
+            role: 'user',
+            content:
+              '[SISTEM] Mendekati batas step. Prioritaskan action "final" dengan jawaban terbaik dari data yang ada.',
+          });
+        }
+      } catch (nudgeErr) {
+        console.log('[agent-loop] step-limit nudge skipped:', nudgeErr.message);
+      }
+    }
 
     let rawResponse;
     try {
@@ -305,6 +352,29 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       // FIX D14: Only record tool as used after successful execution
       toolsUsed.push(parsed.tool);
 
+      // Advance active plan (1 successful tool ≈ 1 step), skip agent-plan itself
+      let planAdvanceNote = '';
+      try {
+        const adv = advancePlanAfterTool(userId, parsed.tool, result.output);
+        if (adv.advanced && adv.step) {
+          planAdvanceNote =
+            `\n\n[SISTEM PLAN] Langkah "${adv.step.id}: ${adv.step.title}" ditandai selesai ` +
+            `setelah tool ${parsed.tool}.`;
+          const stillNext = adv.plan ? getNextStep(adv.plan) : null;
+          if (stillNext) {
+            planAdvanceNote +=
+              ` Langkah berikutnya: "${stillNext.id}: ${stillNext.title}".`;
+          } else if (adv.plan && adv.plan.status === 'done') {
+            planAdvanceNote += ' Semua langkah plan selesai.';
+          }
+          console.log(
+            `[agent-loop] Plan advanced: ${adv.step.id} via ${parsed.tool}`
+          );
+        }
+      } catch (advErr) {
+        console.log('[agent-loop] plan advance skipped:', advErr.message);
+      }
+
       // FIX C8: Use setImmediate so vault reindex doesn't block the event loop.
       // Without this, indexVault() blocks all concurrent WebUI/Telegram requests
       // for several seconds on every vault mutation.
@@ -320,7 +390,20 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
       const outputText = truncateOutput(result.output || '(No output)');
       messages.push({ role: 'assistant', content: rawResponse });
-      let resultMsg = `Hasil eksekusi tool ${parsed.tool}:\n${outputText}`;
+      let resultMsg =
+        `Hasil eksekusi tool ${parsed.tool}:\n${outputText}` + planAdvanceNote;
+
+      // Reflect plan status agar model tahu kapan harus final
+      try {
+        const planNow = loadPlan(userId);
+        const reflect = buildPlanReflectMessage(planNow);
+        if (reflect) {
+          resultMsg += `\n\n${reflect}`;
+        }
+      } catch (refErr) {
+        console.log('[agent-loop] plan reflect skipped:', refErr.message);
+      }
+
       if (parsed.tool === 'fetch') {
         const failed = /^Gagal fetch:/i.test(String(result.output || ''));
         if (!failed) {
