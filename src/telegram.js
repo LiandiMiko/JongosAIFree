@@ -33,6 +33,7 @@ const AGENT_TRIGGERS = [
   /\bskill\b/i, /\bclawd-scan\b/i, /\bping\b/i,
   /^(?:agent-plan|plan|lihat plan|hapus plan|buat plan:|create plan:)/i,
   /^(?:agent-task:|task|tasks|antrian|task\s+(?:list|next|add:|done:|cancel:)|tambah task:)/i,
+  /^(?:trace|traces|agent-trace|jejak)(?::|\s|$)/i,
 
   // Real-time data (butuh fetch)
   /\bberita\b/i, /\bnews\b/i,

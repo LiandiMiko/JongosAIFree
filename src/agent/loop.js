@@ -13,6 +13,7 @@ const {
   getNextStep,
   buildPlanReflectMessage,
 } = require('./plan');
+const { startTrace, recordTool, finishTrace } = require('./trace');
 
 const MUTATING_VAULT_TOOLS = [
   'obsidian-create',
@@ -41,6 +42,22 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
   const intent = classifyIntent(userMessage);
   const tickerList = Array.isArray(intent.tickers) ? intent.tickers : [];
+  let activePlanId = null;
+  try {
+    const activePlan = loadPlan(userId);
+    if (activePlan && activePlan.status === 'active') {
+      activePlanId = activePlan.id;
+    }
+  } catch (planErr) {
+    console.log('[agent-loop] plan trace lookup skipped:', planErr.message);
+  }
+
+  const trace = startTrace(userId, {
+    source: meta.source || 'agent',
+    userMessage,
+    intent,
+    planId: activePlanId,
+  });
   console.log(
     `[agent-loop] Intent: ${intent.type} (${intent.confidence}) skipRag=${intent.skipRag}` +
       (tickerList.length ? ` tickers=${tickerList.join(',')}` : '')
@@ -51,6 +68,14 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   let toolsUsedSeed = [];
   if (intent.type === 'realtime' && tickerList.length > 0 && !meta.toolResult) {
     prefetchedPrices = await fetchBinanceTickers(tickerList);
+    recordTool(trace, {
+      tool: 'fetch',
+      args: { tickers: tickerList },
+      status: prefetchedPrices.ok ? 'ok' : 'error',
+      output: prefetchedPrices.ok
+        ? prefetchedPrices.formatted
+        : prefetchedPrices.error,
+    });
     console.log(
       `[agent-loop] Prefetch Binance: ${prefetchedPrices.ok ? 'OK' : 'FAIL'} ` +
         `${JSON.stringify(prefetchedPrices.rows || prefetchedPrices.error)}`
@@ -197,6 +222,7 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       });
     } catch (err) {
       console.error(`[agent-loop] LLM Call error at step ${step}:`, err.message);
+      finishTraceSafely(trace, { status: 'error', error: err.message });
       return {
         status: 'error',
         message: `Maaf, terjadi masalah pada koneksi AI: ${err.message}`,
@@ -223,6 +249,10 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         toolsUsed,
         intent,
       });
+      finishTraceSafely(trace, {
+        status: 'answered',
+        answer: parsed.reply,
+      });
       return {
         status: 'answered',
         answer: `${parsed.reply}\n\n${footer}`,
@@ -241,6 +271,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
           `[agent-loop] Blocked tool "${parsed.tool}" by intent policy (${intent.type})`
         );
         messages.push({ role: 'assistant', content: rawResponse });
+        recordTool(trace, {
+          tool: parsed.tool,
+          args: parsed.args || {},
+          status: 'blocked',
+          output: 'Blocked by intent policy',
+        });
         messages.push({
           role: 'user',
           content:
@@ -260,6 +296,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
         if (used >= maxForTool) {
           console.log(`[agent-loop] Cap tool "${parsed.tool}" (${used}/${maxForTool})`);
           messages.push({ role: 'assistant', content: rawResponse });
+          recordTool(trace, {
+            tool: parsed.tool,
+            args: parsed.args || {},
+            status: 'blocked',
+            output: `Tool cap reached (${used}/${maxForTool})`,
+          });
           messages.push({
             role: 'user',
             content:
@@ -278,6 +320,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       if (prevCount >= 1) {
         console.log(`[agent-loop] Repeat tool blocked: ${callSig}`);
         messages.push({ role: 'assistant', content: rawResponse });
+        recordTool(trace, {
+          tool: parsed.tool,
+          args: parsed.args || {},
+          status: 'blocked',
+          output: 'Repeated tool call blocked',
+        });
         messages.push({
           role: 'user',
           content:
@@ -313,6 +361,16 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       }
 
       if (result.status === 'approval_required') {
+        recordTool(trace, {
+          tool: parsed.tool,
+          args: parsed.args || {},
+          status: 'approval_required',
+          output: result.message || '',
+        });
+        finishTraceSafely(trace, {
+          status: 'approval_required',
+          answer: result.message,
+        });
         return {
           status: 'approval_required',
           requestId: result.requestId,
@@ -332,6 +390,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       }
 
       if (result.status === 'blocked') {
+        recordTool(trace, {
+          tool: parsed.tool,
+          args: parsed.args || {},
+          status: 'blocked',
+          output: result.error || '',
+        });
         messages.push({ role: 'assistant', content: rawResponse });
         messages.push({
           role: 'user',
@@ -341,6 +405,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
       }
 
       if (result.status === 'error') {
+        recordTool(trace, {
+          tool: parsed.tool,
+          args: parsed.args || {},
+          status: 'error',
+          output: result.error || '',
+        });
         messages.push({ role: 'assistant', content: rawResponse });
         messages.push({
           role: 'user',
@@ -351,6 +421,12 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
 
       // FIX D14: Only record tool as used after successful execution
       toolsUsed.push(parsed.tool);
+      recordTool(trace, {
+        tool: parsed.tool,
+        args: parsed.args || {},
+        status: 'ok',
+        output: result.output,
+      });
 
       // Advance active plan (1 successful tool ≈ 1 step), skip agent-plan itself
       let planAdvanceNote = '';
@@ -419,11 +495,23 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
     }
   }
 
+  finishTraceSafely(trace, {
+    status: 'error',
+    error: 'max steps reached',
+  });
   return {
     status: 'error',
     message:
       'Maaf, batas maksimum langkah (max steps) tercapai sebelum mendapat jawaban akhir.',
   };
+}
+
+function finishTraceSafely(trace, result) {
+  try {
+    finishTrace(trace, result);
+  } catch (error) {
+    console.error('[agent-loop] trace save failed:', error.message);
+  }
 }
 
 function truncateOutput(text) {

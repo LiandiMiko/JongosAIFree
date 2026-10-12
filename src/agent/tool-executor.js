@@ -47,6 +47,10 @@ const TOOL_ARG_SCHEMAS = {
       id: 'string',
     },
   },
+  'agent-trace': {
+    required: [],
+    types: { limit: 'string' },
+  },
 };
 
 function validateAgentAction(parsed) {
@@ -174,6 +178,10 @@ function convertActionToToolCallString(parsed) {
     if (action === 'done') return `task done: ${args.id || ''}`;
     if (action === 'cancel') return `task cancel: ${args.id || ''}`;
     return 'task';
+  }
+  if (tool === 'agent-trace') {
+    const limit = args.limit ? String(args.limit) : '';
+    return limit ? `trace: ${limit}` : 'trace';
   }
 
   return `${tool}: ${JSON.stringify(args)}`;

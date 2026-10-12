@@ -21,6 +21,7 @@ const TOOL_POLICY = Object.freeze({
   'clawd-scan': 'low',
   'agent-plan': 'low',
   'agent-task': 'low',
+  'agent-trace': 'low',
 
   fetch: 'medium',
   'device-info': 'medium',
