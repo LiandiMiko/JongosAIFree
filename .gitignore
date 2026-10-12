@@ -7,6 +7,7 @@ data/
 src/*.before-*.js
 src/*.backup.js
 src/*.working-*.js
+*.bak
 memory/second-brain/
 
 # Import folder — jangan commit file user

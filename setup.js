@@ -384,11 +384,15 @@ function countMarkdown(dir) {
   return n;
 }
 
-main().catch((err) => {
-  if (err.code === 'ERR_USE_AFTER_CLOSE') {
-    console.log('\n  Setup dibatalkan.\n');
-    process.exit(0);
-  }
-  console.error('\n  Setup error:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    if (err.code === 'ERR_USE_AFTER_CLOSE') {
+      console.log('\n  Setup dibatalkan.\n');
+      process.exit(0);
+    }
+    console.error('\n  Setup error:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { runSetup: main };

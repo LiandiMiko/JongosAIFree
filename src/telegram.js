@@ -8,6 +8,7 @@ const {
   approveRequest,
   denyRequest,
 } = require('./approval');
+const { addMessage, getHistory } = require('./memory');
 
 /**
  * Start the Telegram bot gateway
@@ -302,7 +303,6 @@ function startTelegram(config) {
       if (!needsAgentLoop(text)) {
         console.log('[telegram] Fast-chat mode (local LLM, no tools)');
         const { callLLM } = require('./llm');
-        const { getHistory } = require('./memory');
 
         const fullHistory = await getHistory(userId);
 
@@ -340,6 +340,13 @@ function startTelegram(config) {
         ];
 
         const reply = await callLLM(messages, config);
+
+        try {
+          await addMessage(userId, 'user', text);
+          await addMessage(userId, 'assistant', reply);
+        } catch (e) {
+          console.log('[telegram] memory save skipped:', e.message);
+        }
 
         await ctx.reply(reply);
         return;

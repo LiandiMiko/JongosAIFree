@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const { prompt } = require('enquirer');
+require('dotenv').config();
 const {
   c, red, green, yellow, blue, cyan, magenta, gray, bold, dim,
   banner, section, box, step, status, divider, spinner, nl, LOBSTER,

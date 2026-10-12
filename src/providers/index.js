@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const { isRateLimited, markRateLimited } = require('../llm-status');
 const { scanMessages, formatDetections } = require('../secret-scanner');
 
@@ -19,6 +21,56 @@ const PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
 /** Model terakhir yang sukses — diprioritaskan di call berikutnya */
 let lastGoodModel = null; // { provider, model }
 
+// === Health state persistence ===
+const HEALTH_STATE_PATH = path.join(__dirname, '..', '..', 'data', 'health-state.json');
+
+function loadHealthState() {
+  try {
+    if (!fs.existsSync(HEALTH_STATE_PATH)) return;
+    const data = JSON.parse(fs.readFileSync(HEALTH_STATE_PATH, 'utf-8'));
+    const now = Date.now();
+    let nModel = 0, nProv = 0;
+    for (const [key, val] of Object.entries(data.models || {})) {
+      if (val && val.until > now) { modelHealthCache.set(key, val); nModel++; }
+    }
+    for (const [key, val] of Object.entries(data.providers || {})) {
+      if (val > now) { providerCooldown.set(key, val); nProv++; }
+    }
+    if (data.lastGoodModel && data.lastGoodModel.provider && data.lastGoodModel.model) {
+      lastGoodModel = data.lastGoodModel;
+    }
+    console.log(`[health] Loaded ${nModel} model + ${nProv} provider cooldowns from disk`);
+  } catch (e) {
+    console.warn('[health] load failed:', e.message);
+  }
+}
+
+let _saveTimer = null;
+function saveHealthState() {
+  if (_saveTimer) return;
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null;
+    try {
+      const now = Date.now();
+      const models = {};
+      const providers = {};
+      for (const [key, val] of modelHealthCache) {
+        if (val && val.until > now) models[key] = val;
+      }
+      for (const [key, val] of providerCooldown) {
+        if (val > now) providers[key] = val;
+      }
+      fs.mkdirSync(path.dirname(HEALTH_STATE_PATH), { recursive: true });
+      fs.writeFileSync(HEALTH_STATE_PATH, JSON.stringify({
+        models, providers, lastGoodModel,
+        savedAt: new Date().toISOString(),
+      }, null, 2));
+    } catch (e) {
+      console.warn('[health] save failed:', e.message);
+    }
+  }, 500);
+}
+
 function isModelUnhealthy(provider, model) {
   const key = `${provider}/${model}`;
   const entry = modelHealthCache.get(key);
@@ -32,6 +84,7 @@ function isModelUnhealthy(provider, model) {
 
 function markModelUnhealthy(provider, model, ms = MODEL_COOLDOWN_MS) {
   modelHealthCache.set(`${provider}/${model}`, { until: Date.now() + ms });
+  saveHealthState();
 }
 
 function isProviderOnCooldown(provider) {
@@ -46,6 +99,7 @@ function isProviderOnCooldown(provider) {
 
 function markProviderCooldown(provider, ms = PROVIDER_COOLDOWN_MS) {
   providerCooldown.set(provider, Date.now() + ms);
+  saveHealthState();
 }
 
 function extractStatusCode(error) {
@@ -403,7 +457,7 @@ async function callLLM(messages, config, options = {}) {
       else if (provider === 'mistral') text = await callMistral(messages, model, options);
       else throw new Error(`Provider ${provider} belum memiliki adapter.`);
 
-      lastGoodModel = { provider, model };
+      lastGoodModel = { provider, model }; saveHealthState();
       console.log(`[llm] ✓ pakai ${provider}/${model} (sticky untuk request berikutnya)`);
       return text;
     } catch (error) {
@@ -453,6 +507,7 @@ async function callLLM(messages, config, options = {}) {
         // Jangan pakai model ini sebagai preferred lagi di step agent berikutnya
         if (lastGoodModel && lastGoodModel.provider === provider && lastGoodModel.model === model) {
           lastGoodModel = null;
+          saveHealthState();
         }
         console.log(
           `[llm] ${provider}/${model} high-demand/503 (${code}) → skip ${TRANSIENT_COOLDOWN_MS / 1000}s, coba model lain...`
@@ -541,7 +596,7 @@ async function warmupProviders(config = {}) {
         else if (provider === 'mistral') text = await callMistral(messages, model, {});
         else throw new Error('no adapter');
 
-        lastGoodModel = { provider, model };
+        lastGoodModel = { provider, model }; saveHealthState();
         ready.push({ provider, model });
         providerHasReady = true;
         console.log('OK');
@@ -619,6 +674,8 @@ function getReadyModelsSnapshot() {
   return ready;
 }
 
+
+loadHealthState();
 
 module.exports = {
   callLLM,

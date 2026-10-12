@@ -103,6 +103,9 @@ async function runAgentLoop(userMessage, config = {}, meta = {}) {
   }
 
   const priorHistory = Array.isArray(meta.history) ? meta.history : [];
+  if (priorHistory.length) {
+    console.log(`[agent-loop] History: ${priorHistory.length} prior message(s)`);
+  }
   const messages = [
     { role: 'system', content: systemPrompt },
     ...priorHistory,

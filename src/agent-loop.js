@@ -10,7 +10,7 @@ const {
   consumeApproval,
   getApproval,
 } = require('./approval');
-const { addMessage } = require('./memory');
+const { addMessage, getHistory, toLlmHistory } = require('./memory');
 
 /**
  * Run the multi-step agent.
@@ -40,17 +40,32 @@ async function runAgent(text, config = {}, meta = {}) {
       console.log('[agent-loop] status check skipped:', e.message);
     }
 
+    const hasInFlightHistory = Array.isArray(meta.history) && meta.history.length > 0;
+    let history = hasInFlightHistory ? meta.history : [];
+    // Approval continuation already carries the in-flight LLM stack (+ toolResult).
+    if (!meta.toolResult && !hasInFlightHistory) {
+      try {
+        history = toLlmHistory(await getHistory(userId));
+      } catch (e) {
+        console.log('[agent-loop] history load skipped:', e.message);
+        history = [];
+      }
+    }
+
     const result = await runAgentLoop(text, config, {
       ...meta,
       userId,
+      history,
       source: meta.source || 'telegram',
     });
 
-    // Persist conversation on final answer
-    if (result.status === 'answered') {
+    // Persist the user turn even if a high-risk tool is waiting for approval.
+    if (result.status === 'answered' || result.status === 'approval_required') {
       try {
         await addMessage(userId, 'user', text);
-        await addMessage(userId, 'assistant', result.answer);
+        if (result.status === 'answered') {
+          await addMessage(userId, 'assistant', result.answer);
+        }
       } catch (e) {
         console.log('[agent-loop] memory save skipped:', e.message);
       }
