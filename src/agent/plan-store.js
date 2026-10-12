@@ -9,6 +9,8 @@ const {
   markStepRunning,
   markStepDone,
   markStepFailed,
+  updateStep,
+  shouldAdvanceStepForTool,
 } = require('./plan');
 const { listTasks, markTaskDone } = require('./task-queue');
 
@@ -168,6 +170,32 @@ function advancePlanAfterTool(userId, toolName, toolOutput) {
   const next = getNextStep(plan);
   if (!next) {
     return { plan, advanced: false, step: null };
+  }
+
+  const fit = shouldAdvanceStepForTool(toolName, next.title);
+  if (!fit.ok) {
+    console.log(
+      `[plan-store] skip advance: tool=${toolName} step=${next.id} score=${fit.score} (${fit.reason})`
+    );
+    const outputNote = String(toolOutput || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200);
+    const note = [
+      next.note,
+      `Tool ${toolName} tidak memajukan langkah (score ${fit.score}): ${outputNote}`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .slice(-500);
+    const saved = savePlan(userId, updateStep(plan, next.id, { note }));
+    return {
+      plan: saved,
+      advanced: false,
+      step: null,
+      skipped: true,
+      fit,
+    };
   }
 
   const note = String(toolOutput || '')

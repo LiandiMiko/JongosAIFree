@@ -306,6 +306,84 @@ function buildPlanReflectMessage(plan) {
   return lines.join('\n');
 }
 
+/** Kata kunci kasar: family tool → token yang sering muncul di judul step */
+const TOOL_HINTS = {
+  'obsidian-search': ['cari', 'search', 'audit', 'list', 'temukan', 'scan', 'keyword'],
+  'obsidian-context': ['konteks', 'context', 'topik', 'ringkas', 'overview'],
+  'obsidian-read': ['baca', 'read', 'isi', 'detail', 'buka'],
+  'obsidian-tree': ['folder', 'tree', 'struktur', 'direktori'],
+  'obsidian-tags': ['tag', 'label'],
+  'obsidian-backlinks': ['backlink', 'link', 'tautan'],
+  'obsidian-normalize': ['rapikan', 'normalize', 'normalisasi', 'format', 'frontmatter'],
+  'obsidian-organize': ['organize', 'organisir', 'pindah massal', 'audit vault'],
+  'obsidian-create': ['buat', 'create', 'tulis note', 'note baru'],
+  'obsidian-append': ['append', 'tambah', 'log', 'catat'],
+  'obsidian-update': ['update', 'ubah', 'ganti isi', 'timpa'],
+  'obsidian-move': ['pindah', 'move', 'rename', 'ganti nama'],
+  'obsidian-delete': ['hapus', 'delete', 'buang'],
+  fetch: ['fetch', 'web', 'url', 'harga', 'online', 'http'],
+  shell: ['shell', 'terminal', 'perintah', 'command'],
+  remember: ['ingat', 'remember', 'memori'],
+};
+
+/**
+ * Apakah tool ini cukup cocok dengan judul langkah pending?
+ * @returns {{ score: number, reason: string }}
+ */
+function scoreToolForStep(toolName, stepTitle) {
+  const tool = String(toolName || '').toLowerCase();
+  const title = String(stepTitle || '').toLowerCase();
+  if (!tool || !title) return { score: 0, reason: 'empty' };
+
+  let score = 0;
+  const reasons = [];
+
+  const short = tool.replace(/^obsidian-/, '');
+  if (title.includes(tool) || title.includes(short)) {
+    score += 0.6;
+    reasons.push('name-in-title');
+  }
+
+  const hints = TOOL_HINTS[tool] || TOOL_HINTS[short] || [];
+  for (const hint of hints) {
+    if (hint && title.includes(hint)) {
+      score += 0.35;
+      reasons.push(`hint:${hint}`);
+      break;
+    }
+  }
+
+  if (tool.startsWith('obsidian-') && /vault|note|obsidian|markdown|\.md/.test(title)) {
+    score += 0.2;
+    reasons.push('vault-family');
+  }
+
+  if (
+    /paham|konteks|rag|info|ringkas|jawab|hasil/.test(title) &&
+    ['obsidian-search', 'obsidian-context', 'obsidian-read', 'fetch'].includes(tool)
+  ) {
+    score += 0.3;
+    reasons.push('generic-research');
+  }
+
+  return {
+    score: Math.min(1, score),
+    reason: reasons.join(',') || 'no-match',
+  };
+}
+
+/**
+ * true jika boleh majukan step untuk tool ini.
+ */
+function shouldAdvanceStepForTool(toolName, stepTitle, { minScore = 0.35 } = {}) {
+  const { score, reason } = scoreToolForStep(toolName, stepTitle);
+  return {
+    ok: score >= minScore,
+    score,
+    reason,
+  };
+}
+
 module.exports = {
   MAX_STEPS,
   createPlan,
@@ -319,4 +397,6 @@ module.exports = {
   planFromLlmJson,
   formatPlanForPrompt,
   buildPlanReflectMessage,
+  scoreToolForStep,
+  shouldAdvanceStepForTool,
 };
