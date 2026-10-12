@@ -305,7 +305,7 @@ function isRealtimeIntent(t) {
 
   if (
     /\b(btc|bitcoin|eth|ethereum|ondo|tao|xau)\b/i.test(t) &&
-    (liveTime || /\b(berapa|harga|price)\b/i.test(t) || t.length < 40)
+    (liveTime || /\b(berapa|harga|price)\b/i.test(t))
   ) {
     return true;
   }
