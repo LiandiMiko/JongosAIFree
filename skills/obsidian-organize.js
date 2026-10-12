@@ -12,6 +12,11 @@ const {
 
 const moveSkill = require('./obsidian-move');
 const normalizeSkill = require('./obsidian-normalize');
+const {
+  saveOrganizeBatch,
+  loadBatch,
+  formatBatchSummary,
+} = require('../src/vault/batch');
 
 function parseInput(text) {
   const raw = String(text || '')
@@ -124,7 +129,7 @@ module.exports = {
     return t.startsWith('obsidian-organize:');
   },
 
-  async run(text) {
+  async run(text, ctx = {}) {
     if (!vaultExists()) {
       return `Vault tidak ditemukan.\nPath: ${getVaultDir()}`;
     }
@@ -149,43 +154,65 @@ module.exports = {
     if (mode === 'plan') {
       const audit = auditVault();
       const plan = generatePlan(audit);
+      const batch = saveOrganizeBatch({
+        normalizations: plan.normalizations,
+        moves: plan.moves,
+        userId: ctx.userId || 'local',
+      });
       return [
         '📋 **RENCANA PENATAAN VAULT (PLAN)**',
-        `1. Normalisasi Frontmatter (${plan.normalizations.length} file):`,
-        ...plan.normalizations.slice(0, 5).map((f) => `   - Rapikan format: \`${f}\``),
-        plan.normalizations.length > 5 ? `   ...dan ${plan.normalizations.length - 5} lainnya.` : '',
+        `Batch id: \`${batch.id}\` _(berlaku ~30 menit)_`,
         '',
-        `2. Pindahkan File Root ke Folder (Inbox/) (${plan.moves.length} file):`,
-        ...plan.moves.slice(0, 5).map((m) => `   - \`${m.from}\` ➔ \`${m.to}\``),
-        plan.moves.length > 5 ? `   ...dan ${plan.moves.length - 5} lainnya.` : '',
+        formatBatchSummary(batch),
         '',
-        '⚠️ Jalankan `obsidian-organize: {"mode":"apply"}` untuk mengeksekusi rencana ini (membutuhkan approval).',
+        '⚠️ Satu kali approval untuk **seluruh** batch.',
+        'Jalankan apply:',
+        `\`obsidian-organize: {"mode":"apply","batchId":"${batch.id}"}\``,
       ].join('\n');
     }
 
     if (mode === 'apply') {
-      const audit = auditVault();
-      const plan = generatePlan(audit);
-      const results = [];
-
-      // 1. Normalize
-      for (const rel of plan.normalizations) {
-        const res = await normalizeSkill.run(`obsidian-normalize: ${rel}`);
-        results.push(res);
+      const batchId = String(input.batchId || input.batch || '').trim();
+      if (!batchId) {
+        return (
+          'Apply membutuhkan batchId dari mode plan.\n' +
+          '1) obsidian-organize: {"mode":"plan"}\n' +
+          '2) obsidian-organize: {"mode":"apply","batchId":"batch_xxx"}'
+        );
       }
 
-      // 2. Move root files to Inbox
-      for (const item of plan.moves) {
+      const batch = loadBatch(batchId);
+      if (
+        !batch ||
+        batch.type !== 'obsidian-organize' ||
+        batch.userId !==
+          String(ctx.userId || 'local').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)
+      ) {
+        return `Batch tidak ditemukan atau expired: \`${batchId}\`\nBuat ulang dengan mode plan.`;
+      }
+
+      const results = [];
+
+      for (const rel of batch.normalizations) {
+        const res = await normalizeSkill.run(`obsidian-normalize: ${rel}`);
+        results.push(String(res));
+      }
+
+      for (const item of batch.moves) {
         const res = await moveSkill.run(`obsidian-move: ${JSON.stringify(item)}`);
-        results.push(res);
+        results.push(String(res));
       }
 
       return [
-        '✅ **EKSEKUSI BATCH PENATAAN VAULT SELESAI**',
-        `Diolah: ${results.length} tindakan.`,
-        ...results.slice(0, 10),
-        results.length > 10 ? `...dan ${results.length - 10} tindakan lainnya.` : '',
-      ].join('\n');
+        '✅ **BATCH APPLY SELESAI**',
+        `Batch: \`${batch.id}\``,
+        `Tindakan: ${results.length}`,
+        '',
+        ...results.slice(0, 15),
+        results.length > 15 ? `… +${results.length - 15} lainnya` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
     }
 
     return 'Mode tidak dikenal. Gunakan mode: "audit", "plan", atau "apply".';

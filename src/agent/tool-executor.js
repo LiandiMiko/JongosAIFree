@@ -213,6 +213,31 @@ function checkHardToolPolicy(tool, args = {}, meta = {}) {
     };
   }
 
+  if (tool === 'obsidian-organize' && String(args.mode || '').toLowerCase() === 'apply') {
+    const batchId = String(args.batchId || args.batch || '').trim();
+    if (!batchId) {
+      return {
+        blocked: true,
+        error: '[POLICY] obsidian-organize apply wajib memakai batchId dari mode plan.',
+      };
+    }
+    const { loadBatch } = require('../vault/batch');
+    const batch = loadBatch(batchId);
+    const userId = String(meta.userId || meta.user || 'anonymous')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 64);
+    if (
+      !batch ||
+      batch.type !== 'obsidian-organize' ||
+      batch.userId !== userId
+    ) {
+      return {
+        blocked: true,
+        error: `[POLICY] Batch "${batchId}" tidak ditemukan, expired, atau bukan milik user ini. Buat ulang dengan mode plan.`,
+      };
+    }
+  }
+
   if (tool === 'shell') {
     const cmd = String(args.command || '').trim();
     const lower = cmd.toLowerCase();
@@ -325,6 +350,27 @@ async function executeAction(parsed, meta = {}) {
       source: meta.source || 'agent',
     });
 
+    let detail = `Tool: \`${tool}\`\nRisk: ${policy.label}\nID: \`${request.requestId}\``;
+    if (tool === 'obsidian-organize') {
+      const mode = String(args.mode || '').toLowerCase();
+      const batchId = args.batchId || args.batch || '';
+      detail += `\nMode: ${mode || '-'}`;
+      if (batchId) {
+        try {
+          const { loadBatch, formatBatchSummary } = require('../vault/batch');
+          const batch = loadBatch(batchId);
+          if (batch) {
+            detail += `\n\n${formatBatchSummary(batch)}`;
+          } else {
+            detail += `\nBatch: \`${batchId}\` (tidak ditemukan/expired)`;
+          }
+        } catch (error) {
+          console.warn('[tool-executor] Could not load organize batch summary:', error.message);
+          detail += `\nBatch: \`${batchId}\``;
+        }
+      }
+    }
+
     return {
       status: 'approval_required',
       requestId: request.requestId,
@@ -333,9 +379,7 @@ async function executeAction(parsed, meta = {}) {
       policy,
       message:
         `⚠️ Tool high-risk ditahan menunggu approval.\n\n` +
-        `Tool: \`${tool}\`\n` +
-        `Risk: ${policy.label}\n` +
-        `ID: \`${request.requestId}\``,
+        detail,
     };
   }
 
