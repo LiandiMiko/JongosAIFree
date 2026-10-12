@@ -149,6 +149,15 @@ Obrolan natural juga jalan, misal: *"Jo, cari note tentang linux"*, *"Jo, list f
 
 Tool high-risk akan memunculkan tombol **Allow / Deny**.
 
+### Plan agent multi-step
+
+- Buat draft: `plan: Rapikan note Network | audit folder | list note tanpa frontmatter | normalize 3 note`
+- Tinjau plan: `plan`
+- Aktifkan setelah ditinjau: `plan go` (atau `plan jalankan`)
+- Hapus plan: `plan clear`
+
+Plan baru berstatus draft dan tidak maju sampai diaktifkan. Saat plan aktif, tool sukses non-`agent-plan` memajukan satu langkah secara heuristic; tool berisiko tinggi tetap memerlukan approval.
+
 ---
 
 ## 🐛 Troubleshooting
