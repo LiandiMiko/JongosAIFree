@@ -38,6 +38,15 @@ const TOOL_ARG_SCHEMAS = {
       steps: 'string',
     },
   },
+  'agent-task': {
+    required: [],
+    types: {
+      action: 'string',
+      title: 'string',
+      steps: 'string',
+      id: 'string',
+    },
+  },
 };
 
 function validateAgentAction(parsed) {
@@ -150,6 +159,21 @@ function convertActionToToolCallString(parsed) {
       return `plan: ${goal} | ${steps}`;
     }
     return 'plan';
+  }
+  if (tool === 'agent-task') {
+    const action = String(args.action || 'list').toLowerCase();
+    if (action === 'list') return 'task';
+    if (action === 'next') return 'task next';
+    if (action === 'add') {
+      const title = args.title || '';
+      const steps = args.steps || '';
+      return steps
+        ? `task add: ${title} | ${steps}`
+        : `task add: ${title}`;
+    }
+    if (action === 'done') return `task done: ${args.id || ''}`;
+    if (action === 'cancel') return `task cancel: ${args.id || ''}`;
+    return 'task';
   }
 
   return `${tool}: ${JSON.stringify(args)}`;

@@ -10,6 +10,7 @@ const {
   markStepDone,
   markStepFailed,
 } = require('./plan');
+const { listTasks, markTaskDone } = require('./task-queue');
 
 const PLANS_DIR = path.join(__dirname, '..', '..', 'data', 'plans');
 
@@ -115,6 +116,32 @@ function activatePlan(userId) {
 }
 
 /**
+ * Jika plan baru selesai, tandai task terkait sebagai done.
+ */
+function syncTaskOnPlanDone(userId, plan) {
+  if (!plan || plan.status !== 'done') return;
+
+  try {
+    const tasks = listTasks(userId, { includeDone: true });
+    const related = tasks.filter(
+      (task) =>
+        task.status === 'active' &&
+        (task.planId === plan.id ||
+          String(task.title || '').trim() === String(plan.goal || '').trim())
+    );
+
+    for (const task of related) {
+      markTaskDone(userId, task.id);
+      console.log(
+        `[plan-store] Task ${task.id} marked done (plan ${plan.id} finished)`
+      );
+    }
+  } catch (err) {
+    console.log('[plan-store] syncTaskOnPlanDone skipped:', err.message);
+  }
+}
+
+/**
  * Setelah tool sukses: tandai langkah pending saat ini sebagai done.
  * Heuristic sederhana — 1 tool sukses ≈ 1 step maju.
  * @returns {{ plan: object|null, advanced: boolean, step: object|null }}
@@ -152,6 +179,9 @@ function advancePlanAfterTool(userId, toolName, toolOutput) {
   updated = markStepDone(updated, next.id, `via ${toolName}: ${note}`);
 
   const saved = savePlan(userId, updated);
+  if (saved.status === 'done') {
+    syncTaskOnPlanDone(userId, saved);
+  }
   return { plan: saved, advanced: true, step: next };
 }
 

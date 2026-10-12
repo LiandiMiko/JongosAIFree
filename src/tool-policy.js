@@ -20,6 +20,7 @@ const TOOL_POLICY = Object.freeze({
   remember: 'low',
   'clawd-scan': 'low',
   'agent-plan': 'low',
+  'agent-task': 'low',
 
   fetch: 'medium',
   'device-info': 'medium',
