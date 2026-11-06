@@ -65,6 +65,11 @@ console.log('');
 loadSkills();
 
 // Start gateways
+// Warmup + background re-probe
+const { warmupProviders, startBackgroundReprobe } = require('./src/llm');
+warmupProviders(config).catch((e) => console.warn('[warmup] error:', e.message));
+startBackgroundReprobe();
+
 startTelegram(config);
 startWebUI(config);
 

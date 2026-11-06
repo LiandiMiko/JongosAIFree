@@ -1,12 +1,53 @@
 require("dotenv").config();
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { markSuccess, markRateLimited, markError, recordUsage } = require('./llm-status');
 const { scanMessages, formatDetections } = require('./secret-scanner');
 const { isRateLimited } = require('./llm-status');
 
 // === Model health cache (anti-503 berulang) ===
-const modelHealthCache = new Map(); // key: "provider/model" → { until: timestamp }
+const modelHealthCache = new Map();
 const MODEL_COOLDOWN_MS = 60 * 1000;
+
+// === A: Health state persistence ===
+const HEALTH_STATE_PATH = path.join(__dirname, '..', 'data', 'health-state.json');
+let lastGoodModel = null;
+
+function loadHealthState() {
+  try {
+    if (!fs.existsSync(HEALTH_STATE_PATH)) return;
+    const data = JSON.parse(fs.readFileSync(HEALTH_STATE_PATH, 'utf-8'));
+    const now = Date.now();
+    let n = 0;
+    for (const [key, val] of Object.entries(data.models || {})) {
+      if (val && val.until > now) { modelHealthCache.set(key, val); n++; }
+    }
+    if (data.lastGoodModel?.provider && data.lastGoodModel?.model) {
+      lastGoodModel = data.lastGoodModel;
+    }
+    if (n > 0) console.log(`[health] Loaded ${n} model cooldowns from disk`);
+  } catch (e) { console.warn('[health] load failed:', e.message); }
+}
+
+let _saveTimer = null;
+function saveHealthState() {
+  if (_saveTimer) return;
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null;
+    try {
+      const now = Date.now();
+      const models = {};
+      for (const [k, v] of modelHealthCache) if (v && v.until > now) models[k] = v;
+      fs.mkdirSync(path.dirname(HEALTH_STATE_PATH), { recursive: true });
+      fs.writeFileSync(HEALTH_STATE_PATH, JSON.stringify({
+        models, lastGoodModel, savedAt: new Date().toISOString(),
+      }, null, 2));
+    } catch (e) { console.warn('[health] save failed:', e.message); }
+  }, 500);
+}
+
+loadHealthState();
 
 function isModelUnhealthy(provider, model) {
   const key = `${provider}/${model}`;
@@ -22,6 +63,7 @@ function isModelUnhealthy(provider, model) {
 function markModelUnhealthy(provider, model) {
   const key = `${provider}/${model}`;
   modelHealthCache.set(key, { until: Date.now() + MODEL_COOLDOWN_MS });
+  saveHealthState();
 }
 // === end Model health cache ===
 
@@ -1091,8 +1133,111 @@ async function callLLM(messages, config, options = {}) {
   );
 }
 
+
+
+// === B: Warmup ===
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Timeout after ' + ms + 'ms')), ms);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function warmupProviders(config = {}) {
+  const _warmupStart = Date.now();
+  if (String(process.env.WARMUP_SKIP || '').trim() === '1') {
+    console.log('[warmup] skipped'); return;
+  }
+  const probeAll = String(process.env.WARMUP_ALL_MODELS || '').trim() === '1';
+  const primary = (config.provider || 'gemini').toLowerCase();
+
+  const hasKey = (p) => {
+    const map = {
+      gemini: () => getGeminiApiKeys().length > 0,
+      groq: () => !!process.env.GROQ_API_KEY,
+      openrouter: () => !!process.env.OPENROUTER_API_KEY,
+      mistral: () => !!process.env.MISTRAL_API_KEY,
+      sambanova: () => !!process.env.SAMBANOVA_API_KEY,
+      llm7: () => !!process.env.LLM7_API_KEY,
+      llamacpp: () => !!process.env.LLAMACPP_URL,
+    };
+    return map[p] ? map[p]() : false;
+  };
+
+  const order = [];
+  if (hasKey(primary)) order.push(primary);
+  for (const p of Object.keys(PROVIDERS)) if (p !== primary && hasKey(p)) order.push(p);
+  if (!order.length) { console.log('[warmup] no providers'); return; }
+
+  const messages = [{ role: 'user', content: 'Reply with exactly one word: ok' }];
+  console.log('[warmup] probing...');
+
+  for (const provider of order) {
+    let models = [...getModels(provider)];
+    if (provider === primary && config.model && models.includes(config.model)) {
+      models = [config.model, ...models.filter((m) => m !== config.model)];
+    }
+    let anyReady = false;
+    for (const model of models) {
+      if (isRateLimited(provider, model) || isModelUnhealthy(provider, model)) {
+        console.log(`[warmup] skip ${provider}/${model} (cooldown)`); continue;
+      }
+      process.stdout.write(`[warmup] ${provider}/${model} ... `);
+      try {
+        await withTimeout((async () => {
+          if (provider === 'gemini') await callGemini(messages, model, {});
+          else if (provider === 'groq') await callGroq(messages, model, {});
+          else if (provider === 'openrouter') await callOpenRouter(messages, model, {});
+          else if (provider === 'mistral') await callMistral(messages, model, {});
+          else if (provider === 'sambanova') await callSambaNova(messages, model, {});
+          else if (provider === 'llm7') await callLLM7(messages, model, {});
+          else if (provider === 'llamacpp') await callLlamaCpp(messages, model, {});
+        })(), 5000);
+        lastGoodModel = { provider, model };
+        saveHealthState();
+        anyReady = true;
+        console.log('OK');
+        if (!probeAll) break;
+      } catch (err) {
+        console.log('FAIL (' + err.message + ')');
+        markModelUnhealthy(provider, model);
+        if (isQuotaError(err.response?.status, err.response?.data)) break;
+      }
+    }
+    if (!anyReady) console.log(`[warmup] ${provider}: no ready model`);
+  }
+
+  const elapsed = Date.now() - (typeof _warmupStart !== 'undefined' ? _warmupStart : Date.now());
+  const readyCount = [...modelHealthCache.values()].filter(v => v.until > Date.now()).length;
+  console.log('');
+  console.log(`[warmup] done in ${elapsed}ms — ${readyCount} model(s) cooldown, ${lastGoodModel ? lastGoodModel.provider + '/' + lastGoodModel.model : 'no lastGood'}`);
+}
+
+// === C: Background re-probe ===
+function startBackgroundReprobe(intervalMs = 5 * 60 * 1000) {
+  const id = setInterval(() => {
+    const now = Date.now();
+    let n = 0;
+    for (const [key, val] of modelHealthCache) {
+      if (val.until <= now) { modelHealthCache.delete(key); n++; }
+    }
+    if (n > 0) {
+      console.log(`[health] cleared ${n} expired cooldowns`);
+      saveHealthState();
+    }
+  }, intervalMs);
+  if (id.unref) id.unref();
+  return id;
+}
+
 module.exports = {
   callLLM,
   PROVIDERS,
   getModels,
 };
+
+module.exports.warmupProviders = warmupProviders;
+module.exports.startBackgroundReprobe = startBackgroundReprobe;

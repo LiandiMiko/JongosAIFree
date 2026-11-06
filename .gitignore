@@ -14,3 +14,11 @@ data/imports/inbox/*
 data/imports/processed/*
 !data/imports/inbox/.gitkeep
 !data/imports/processed/.gitkeep
+data/health-state.json
+data/health-state.json
+*.bak
+.env.*
+test-providers.js
+*.bak
+.env*
+test-providers.js
