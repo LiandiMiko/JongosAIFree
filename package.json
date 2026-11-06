@@ -11,7 +11,9 @@
     "setup": "node setup.js",
     "dev": "node --watch index.js",
     "clawd": "node cli.js",
-    "import": "node scripts/import-ai-chats.js"
+    "import": "node scripts/import-ai-chats.js",
+    "tui": "node src/tui.js",
+    "chat": "node src/tui-chat.js"
   },
   "keywords": [
     "ai",
