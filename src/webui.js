@@ -156,6 +156,20 @@ function startWebUI(config) {
 
   // === End dashboard endpoints ===
 
+  app.get('/api/health', (req, res) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const HEALTH_FILE = path.join(__dirname, '..', 'data', 'health-state.json');
+      if (!fs.existsSync(HEALTH_FILE)) return res.json({ lastGoodModel: null, cooldownCount: 0 });
+      const data = JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf-8'));
+      res.json({
+        lastGoodModel: data.lastGoodModel,
+        cooldownCount: Object.keys(data.models || {}).length
+      });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
   app.listen(port, '0.0.0.0', () => {
     console.log(`[webui] Server running at http://0.0.0.0:${port}`);
   });
