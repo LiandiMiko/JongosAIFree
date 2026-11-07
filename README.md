@@ -1,19 +1,23 @@
-# 🦞 JongosAIFree
+# 🦞 JongosAIFree (Termux Edition)
 
-**Personal AI agent** dengan Telegram bot, WebUI dashboard, Obsidian memory, dan multi-provider AI routing.
+**Personal AI Agent** dengan Telegram bot, WebUI dashboard, Obsidian Second Brain, dan multi-provider AI routing.
+
+> ⚠️ **Catatan Branch:** Kamu sedang membaca branch `termux-local`. Branch ini fokus pada **optimasi performa (Smart Warmup)**, **stabilitas multi-provider**, dan **Terminal UI (TUI)**. Fitur RAG dan modular refactor (`src/providers/`) ada di branch `master` utama.
 
 Jalan di **Termux (Android)**, **Linux**, **macOS**, **Windows**.
 
-## ✨ Fitur
+---
 
-- 💬 **Telegram bot** + WebUI chat
-- 🧠 **Obsidian "second brain"** — baca, cari, bikin, edit note
-- ⚡ **Multi-provider AI** — Groq, Gemini, OpenRouter, Mistral, SambaNova, LLM7, llama.cpp
-- 🔐 **Privacy layer** — auto-redact API key sebelum ke LLM, sensitive note bypass
-- 📊 **Dashboard** — status provider, vault stats, skills list
-- 🛠️ **19 built-in skills** — memory, shell, device, fetch, dll
-- 🚦 **Rate-limit aware routing** — auto-skip provider yang limit
-- ✅ **Approval system** — tool high-risk butuh konfirmasi user
+## ✨ Fitur Utama
+
+- 💬 **Telegram bot** + WebUI chat + Dashboard observability.
+- 🖥️ **Terminal UI (TUI)**: Ngobrol dan monitor kuota langsung dari terminal.
+- 🧠 **Obsidian Second Brain**: `read`, `search`, `create`, `append`, `update`, `tree`, `tags`, `backlinks`, `context`.
+- ⚡ **Multi-provider AI**: Groq, Gemini (multi-key), OpenRouter, Mistral, SambaNova, LLM7, llama.cpp.
+- 🚀 **Smart Warmup & Health State**: Model AI di-test otomatis saat startup. Yang mati/limit akan di-skip selama 10 menit (tersimpan permanen di disk).
+- 🔐 **Privacy layer**: Auto-redact API key & kredensial sebelum dikirim ke LLM.
+- 🚦 **Rate-limit aware routing**: Auto-fallback ke provider lain kalau provider utama limit.
+- ✅ **Approval system**: Tool berisiko tinggi (hapus/tulis) butuh konfirmasi via Telegram atau Terminal.
 
 ---
 
@@ -21,258 +25,142 @@ Jalan di **Termux (Android)**, **Linux**, **macOS**, **Windows**.
 
 ### 1. Clone + Install
 
-**Termux (Android)** — install [Termux](https://f-droid.org/en/packages/com.termux/) dari F-Droid:
+**Termux (Android)** — install [Termux](https://f-droid.org/en/packages/com.termux/) dari F-Droid dulu:
 
 ```bash
 pkg update && pkg install -y nodejs git
-git clone https://github.com/LiandiMiko/JongosAIFree.git ~/clawd-agent
-cd ~/clawd-agent
+git clone https://github.com/LiandiMiko/JongosAIFree.git ~/jongos
+cd ~/jongos
+
+# PENTING: Pindah ke branch termux-local
+git checkout termux-local
+
 npm install
 ```
 
-**Linux / macOS**:
-
-```bash
-# Install Node.js 18+ dulu:
-#   Ubuntu/Debian : sudo apt install nodejs npm
-#   macOS         : brew install node
-git clone https://github.com/LiandiMiko/JongosAIFree.git
-cd JongosAIFree
-npm install
-```
-
-**Windows** — install [Node.js](https://nodejs.org) dulu, lalu di **PowerShell**:
-
-```powershell
-git clone https://github.com/LiandiMiko/JongosAIFree.git
-cd JongosAIFree
-npm install
-```
-
-### 2. Setup
+2. Setup
 
 ```bash
 npm run setup
 ```
 
-Wizard akan tanya:
-- Nama agent (default: Paijo)
-- Web port (default: 3000)
-- API keys provider — isi yang kamu punya, sisanya Enter aja
-- Local LLM URL (opsional)
-- Obsidian vault path (opsional)
-- Telegram bot token (opsional)
+Wizard akan menuntun:
 
-### 3. Jalanin
+· Nama agent (default: Paijo)
+· Port WebUI (default: 3000)
+· API keys provider (isi yang kamu punya, sisanya Enter)
+· Path Obsidian vault (opsional)
+· Telegram bot token (opsional)
+
+3. Jalankan Bot (Telegram + WebUI)
 
 ```bash
 npm start
 ```
 
-Buka:
-- **Chat UI** → http://localhost:3000
-- **Dashboard** → http://localhost:3000/dashboard
+· Chat UI → http://localhost:3000
+· Dashboard → http://localhost:3000/dashboard
 
 ---
 
-## 🔑 API Keys (semua GRATIS, no credit card)
+🖥️ Terminal UI (TUI)
 
-| Provider | Gratis | Kecepatan | Daftar |
-|---|---|---|---|
-| **Groq** ⭐ | 14.4K req/hari | ~800ms | [console.groq.com](https://console.groq.com) |
-| **Gemini** | 20 req/hari/key | 3-5s | [ai.google.dev](https://ai.google.dev) |
-| **OpenRouter** | 50 req/hari | Bervariasi | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| **Mistral** | Terbatas | Cepat | [console.mistral.ai](https://console.mistral.ai) |
-| **SambaNova** | Terbatas | ~3s | [cloud.sambanova.ai](https://cloud.sambanova.ai) |
-| **LLM7.io** | 1M token/hari | ~2s | [llm7.io](https://llm7.io) |
-| **llama.cpp** | Unlimited (lokal) | 2-3s (CPU) | Self-host |
+JongosAIFree punya 2 mode TUI canggih yang jalan langsung di terminal. Buka terminal baru (biarkan bot npm start tetap jalan di terminal lama).
 
-**Minimal 1 provider** biar bisa jalan. **Groq** paling direkomendasikan — cepet + gratis + simpel.
+1. TUI Monitor (npm run tui)
 
----
-
-## 📱 Setup Telegram Bot (opsional)
-
-1. Buka chat dengan [@BotFather](https://t.me/BotFather)
-2. Kirim `/newbot`
-3. Kasih nama + username (misal `@PaijoBot`)
-4. Copy token yang dikasih
-5. Paste di wizard `npm run setup`
-
-**Commands:**
-- `/start` — intro
-- `/status` — usage + quota per provider
-- `/help` — bantuan
-- `/reset` — hapus history
-
-**Atau ngobrol natural:**
-- *"Jo, buka file troubleshooting"*
-- *"Jo, cari note tentang linux"*
-- *"Jo, list folder di second brain"*
-- *"Jo, harga btc hari ini?"* — auto-fetch dari internet
-
----
-
-## 🧠 Setup Obsidian Vault (opsional)
-
-JongosAIFree bisa baca/tulis note di vault Obsidian kamu.
-
-1. Bikin vault pakai [Obsidian](https://obsidian.md) atau folder biasa
-2. Isi path di setup waktu ditanya, atau edit `.env`:
-   ```
-   OBSIDIAN_VAULT=/path/to/your/vault
-   ```
-3. Test di Telegram/WebUI:
-   - *"Jo, list folder di vault"*
-   - *"Jo, cari note tentang project X"*
-
-**Skill Obsidian:**
-
-| Skill | Fungsi | Approval |
-|---|---|---|
-| `obsidian-read` | Baca note | Tidak |
-| `obsidian-search` | Cari keyword | Tidak |
-| `obsidian-tags` | List/filter tag | Tidak |
-| `obsidian-backlinks` | Backlink + outgoing | Tidak |
-| `obsidian-context` | Bundel konteks lengkap | Tidak |
-| `obsidian-tree` | Struktur folder | Tidak |
-| `obsidian-create` | Bikin note baru | Ya |
-| `obsidian-append` | Tambah ke akhir note | Ya |
-| `obsidian-update` | Replace isi note | Ya |
-
----
-
-## 🛠️ Skill Lain
-
-| Skill | Fungsi | Risk |
-|---|---|---|
-| `shell` | Command shell (safe list) | 🔴 HIGH |
-| `readfile` | Baca file | 🟡 MEDIUM |
-| `writefile` | Tulis file | 🔴 HIGH |
-| `fetch` | HTTP GET request | 🟡 MEDIUM |
-| `device-info` | Battery, GPS, camera (Termux only) | 🟡 MEDIUM |
-| `ping` | Ping host | 🟢 LOW |
-| `remember` | Simpan ke memory | 🟢 LOW |
-
-Tool **HIGH risk** → butuh approval via Telegram (tombol Allow/Deny).
-
----
-
-## 📊 Dashboard
-
-Setelah `npm start`, buka http://localhost:3000/dashboard:
-
-- **Providers** — status tiap provider (available/rate-limited/error)
-- **Vault Stats** — jumlah .md, folder, skills
-- **Skills** — semua skill + risk level
-- **Top Tags** — tag paling umum di vault
-- **Vault Tree** — struktur folder lengkap
-
-Auto-refresh tiap 15 detik.
-
----
-
-## 🚀 Tips
-
-### Termux
+Melihat status provider, request, token, dan error secara real-time.
 
 ```bash
-termux-wake-lock     # Cegah Android kill proses
-tmux new -s clawd    # Survive terminal close
-# Ctrl+B, D untuk detach
-tmux attach -t clawd # Reattach
+npm run tui
 ```
 
-Auto-start on reboot: install [Termux:Boot](https://f-droid.org/en/packages/com.termux.boot/).
+Tampilan auto-refresh setiap 2 detik.
 
-### Desktop (systemd di Linux)
+2. TUI Chat (npm run chat)
 
-Bikin `/etc/systemd/system/clawd.service`:
-
-```ini
-[Unit]
-Description=JongosAIFree
-After=network.target
-
-[Service]
-Type=simple
-User=youruser
-WorkingDirectory=/home/youruser/JongosAIFree
-ExecStart=/usr/bin/node index.js
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+Ngobrol langsung dengan AI di terminal tanpa buka Telegram/Web.
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable clawd
-sudo systemctl start clawd
+npm run chat
+```
+
+TUI Commands:
+
+· /help — Bantuan
+· /status — Cek kuota provider
+· /reset — Hapus history chat
+· /quit — Keluar
+
+Jika AI ingin menggunakan tool berisiko tinggi (misal: bikin note), TUI akan memunculkan prompt Allow? (y/N).
+
+---
+
+🔑 API Keys (Gratis, tanpa kartu kredit)
+
+Provider Gratis Kecepatan Daftar
+Groq ⭐ ~14K req/hari ~800ms console.groq.com
+Gemini 20 req/hari/key 3–5s ai.google.dev
+OpenRouter 50 req/hari bervariasi openrouter.ai/keys
+LLM7.io 1M token/hari ~2s llm7.io
+llama.cpp unlimited (lokal) tergantung hardware self-host
+
+Minimal 1 provider. Groq paling direkomendasikan.
+
+---
+
+📂 Struktur Proyek (Branch Termux-Local)
+
+```
+JongosAIFree/
+├── src/
+│   ├── llm.js           # Multi-provider router + Smart Warmup + Health State
+│   ├── agent-loop.js    # Agent loop & tool executor
+│   ├── telegram.js      # Telegram gateway
+│   ├── webui.js         # Express WebUI + dashboard API
+│   ├── approval.js      # High-risk tool approval
+│   ├── tool-policy.js   # Risk levels per skill
+│   ├── skills.js        # Skill loader
+│   ├── tui.js           # Terminal UI (Monitor)
+│   └── tui-chat.js      # Terminal UI (Chat Interaktif)
+├── skills/              # 19 plugin skills (obsidian-*, shell, fetch, …)
+├── data/                # memory.json, llm-status.json, health-state.json
+├── public/              # index.html + dashboard.html
+├── setup.js
+├── index.js
+└── package.json
 ```
 
 ---
 
-## 🐛 Troubleshooting
+🛠️ Matriks Skill Vault
 
-**"Missing API key for provider"**
-→ Minimal 1 provider harus di-set. Cek `.env` atau jalanin `npm run setup` ulang.
+Skill Fungsi Risk Approval
+obsidian-read Baca note Low Tidak
+obsidian-search Cari keyword Low Tidak
+obsidian-tree Struktur folder Low Tidak
+obsidian-tags List/filter tag Low Tidak
+obsidian-backlinks Backlink & outgoing Low Tidak
+obsidian-context Bundel konteks topik Low Tidak
+obsidian-create Buat note baru High Ya
+obsidian-append Tambah isi note High Ya
+obsidian-update Timpa isi note High Ya
 
-**Bot Telegram nggak respon**
-→ Cek koneksi ke `api.telegram.org`. Beberapa WiFi kantor ngeblok Telegram. Coba pakai data seluler.
-
-**Obsidian skills disabled**
-→ Cek path `OBSIDIAN_VAULT` di `.env` beneran ada.
-
-**Port 3000 udah dipakai**
-→ Edit `webPort` di `config.json`.
-
-**Provider error "402"**
-→ Provider butuh top-up. Skip di setup.
+Skill lain: shell (High), writefile (High), readfile (Medium), fetch (Medium), device-info (Medium), ping / remember (Low).
 
 ---
 
-## 🏗️ Arsitektur
+🐛 Troubleshooting
 
-```
-User (Telegram / WebUI)
-       ↓
-  agent-loop.js
-       ↓
-   callLLM()  →  Multi-provider router
-       ↓          ├─ Groq
-  skills/         ├─ Gemini
-       ↓          ├─ OpenRouter
-  Vault /         ├─ Mistral
-  Device /        ├─ SambaNova
-  Shell           ├─ LLM7
-                  └─ llama.cpp (local)
-```
-
-**Fitur teknis:**
-- Rate-limit aware routing (auto-skip provider yang limit)
-- Per-key telemetry (Gemini key #1, #2, #3 tracked separately)
-- Exponential backoff
-- Model health cache (skip 503 selama 60 detik)
-- JSON mode enforcement untuk agent loop
-- Secret scanner (auto-redact API key sebelum ke LLM)
-- Sensitive note bypass (note `sensitive: true` nggak pernah ke LLM)
-- Approval system untuk tool high-risk
+Masalah Solusi
+No API keys found Isi minimal 1 key di .env atau jalankan npm run setup
+Bot Telegram tidak respon Cek koneksi ke api.telegram.org (beberapa WiFi blokir Telegram)
+Obsidian skills disabled Set OBSIDIAN_VAULT di .env ke path yang valid
+Warmup terasa lama Hapus provider mati di .env (diberi tanda #), lalu restart
+Port 3000 dipakai Ubah webPort di config.json
 
 ---
 
-## 📄 License
+📄 Lisensi
 
-MIT — bebas pakai, modif, distribusi.
-
----
-
-## 🔗 Links
-
-- **Repo**: [github.com/LiandiMiko/JongosAIFree](https://github.com/LiandiMiko/JongosAIFree)
-- **Vault contoh**: [github.com/LiandiMiko/second-brain](https://github.com/LiandiMiko/second-brain)
-
----
-
-🦞 **Selamat ngoding!**
+MIT License — JongosAIFree by LiandiMiko
