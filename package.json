@@ -16,9 +16,10 @@
     "test": "node scripts/test-intent.js && node scripts/test-rag.js && node scripts/test-routing.js && node scripts/test-security-guards.js",
     "test:intent": "node scripts/test-intent.js",
     "test:rag": "node scripts/test-rag.js",
-    "test:routing": "node scripts/test-routing.js"
+    "test:routing": "node scripts/test-routing.js",
+    "tui": "node src/tui.js",
+    "chat": "node src/tui-chat.js"
   },
-
   "keywords": [
     "ai",
     "agent",

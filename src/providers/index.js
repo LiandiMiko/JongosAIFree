@@ -540,6 +540,16 @@ async function callLLM(messages, config, options = {}) {
  * Model yang gagal → cooldown; yang sukses → lastGoodModel + ready list.
  * Env: WARMUP_SKIP=1 untuk lewati; WARMUP_ALL_MODELS=1 untuk test semua model (default: stop per-provider setelah 1 sukses).
  */
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Timeout ' + ms + 'ms')), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function warmupProviders(config = {}) {
   if (String(process.env.WARMUP_SKIP || '').trim() === '1') {
     console.log('[warmup] dilewati (WARMUP_SKIP=1)');
@@ -587,14 +597,16 @@ async function warmupProviders(config = {}) {
       process.stdout.write(`[warmup] test ${provider}/${model} ... `);
       try {
         let text;
-        if (provider === 'llm7') text = await callLLM7(messages, model, {});
-        else if (provider === 'sambanova') text = await callSambaNova(messages, model, {});
-        else if (provider === 'groq') text = await callGroq(messages, model, {});
-        else if (provider === 'llamacpp') text = await callLlamaCpp(messages, model, {});
-        else if (provider === 'gemini') text = await callGemini(messages, model, {});
-        else if (provider === 'openrouter') text = await callOpenRouter(messages, model, {});
-        else if (provider === 'mistral') text = await callMistral(messages, model, {});
-        else throw new Error('no adapter');
+        await withTimeout((async () => {
+          if (provider === 'llm7') text = await callLLM7(messages, model, {});
+          else if (provider === 'sambanova') text = await callSambaNova(messages, model, {});
+          else if (provider === 'groq') text = await callGroq(messages, model, {});
+          else if (provider === 'llamacpp') text = await callLlamaCpp(messages, model, {});
+          else if (provider === 'gemini') text = await callGemini(messages, model, {});
+          else if (provider === 'openrouter') text = await callOpenRouter(messages, model, {});
+          else if (provider === 'mistral') text = await callMistral(messages, model, {});
+          else throw new Error('no adapter');
+        })(), 5000);
 
         lastGoodModel = { provider, model }; saveHealthState();
         ready.push({ provider, model });
