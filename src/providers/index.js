@@ -181,6 +181,8 @@ const PROVIDERS = {
   groq: {
     name: 'Groq',
     models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free',
       'llama-3.3-70b-versatile',
       'llama-3.1-8b-instant',
       'gemma2-9b-it',
@@ -190,6 +192,8 @@ const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
     models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free',
       'gemini-3.8-flash',
       'gemini-3.5-flash',
       'gemini-3.5-flash-lite',
@@ -202,23 +206,33 @@ const PROVIDERS = {
     models: [
       'nvidia/nemotron-3-ultra-550b-a55b:free',
       'nvidia/nemotron-3-super-120b-a12b:free',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free',
     ],
   },
   mistral: {
     name: 'Mistral AI',
-    models: ['mistral-small-latest', 'open-mistral-7b'],
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free','mistral-small-latest', 'open-mistral-7b'],
   },
   sambanova: {
     name: 'SambaNova',
-    models: ['Meta-Llama-3.3-70B-Instruct', 'Meta-Llama-3.1-8B-Instruct'],
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free','Meta-Llama-3.3-70B-Instruct', 'Meta-Llama-3.1-8B-Instruct'],
   },
   llm7: {
     name: 'LLM7.io',
-    models: ['default'],
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free','default'],
   },
   llamacpp: {
     name: 'Local (llama.cpp)',
-    models: ['local-model'],
+    models: [
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-super-120b-a12b:free','local-model'],
   },
 };
 
@@ -247,13 +261,13 @@ const TIERED_MODELS = {
   },
   openrouter: {
     light: [
-      'google/gemma-2-9b-it:free',
-      'meta-llama/llama-3.2-3b-instruct:free',
-      'microsoft/phi-3-mini-128k-instruct:free',
+      
+      
+      
     ],
     heavy: [
-      'qwen/qwen-2.5-7b-instruct:free',
-      'mistralai/mistral-7b-instruct:free',
+      
+      
     ],
   },
   mistral: {
