@@ -206,8 +206,6 @@ const PROVIDERS = {
     models: [
       'nvidia/nemotron-3-ultra-550b-a55b:free',
       'nvidia/nemotron-3-super-120b-a12b:free',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
     ],
   },
   mistral: {
